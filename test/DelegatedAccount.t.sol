@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice Mock Exchange that simulates the Perpl Exchange
 contract MockExchange {
@@ -150,7 +151,7 @@ abstract contract Base_Test is Test {
 
 contract Constructor_Test is Base_Test {
     function test_RevertWhen_OwnerIsZeroAddress() external {
-        vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
         new DelegatedAccount(address(0), operator, exchangeAddr, address(token));
     }
 
@@ -190,7 +191,7 @@ contract Constructor_Test is Base_Test {
         assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0x5bf9264c)); // execPerpOps
-                assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
+        assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x1eebd35e)); // buyLiquidations
@@ -327,28 +328,41 @@ contract Fallback_Test is Base_Test {
 contract TransferOwnership_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.transferOwnership(user);
     }
 
-    function test_RevertWhen_NewOwnerIsZeroAddress() external {
-        vm.prank(owner);
-        vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
-        delegatedAccount.transferOwnership(address(0));
-    }
-
-    function test_WhenNewOwnerIsValid() external {
+    function test_WhenNewOwnerIsValid_TwoStepTransfer() external {
         address newOwner = makeAddr("newOwner");
 
-        // it should emit OwnershipTransferred event.
-        vm.expectEmit(true, true, false, false);
-        emit DelegatedAccount.OwnershipTransferred(owner, newOwner);
+        // Step 1: Transfer ownership (sets pending owner)
+        vm.prank(owner);
+        delegatedAccount.transferOwnership(newOwner);
+
+        // Owner should still be the original owner
+        assertEq(delegatedAccount.owner(), owner);
+        // Pending owner should be set
+        assertEq(delegatedAccount.pendingOwner(), newOwner);
+
+        // Step 2: New owner accepts ownership
+        vm.prank(newOwner);
+        delegatedAccount.acceptOwnership();
+
+        // Now ownership is transferred
+        assertEq(delegatedAccount.owner(), newOwner);
+        assertEq(delegatedAccount.pendingOwner(), address(0));
+    }
+
+    function test_RevertWhen_NonPendingOwnerAccepts() external {
+        address newOwner = makeAddr("newOwner");
 
         vm.prank(owner);
         delegatedAccount.transferOwnership(newOwner);
 
-        // it should update owner.
-        assertEq(delegatedAccount.owner(), newOwner);
+        // Random user tries to accept
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        delegatedAccount.acceptOwnership();
     }
 }
 
@@ -359,7 +373,7 @@ contract TransferOwnership_Test is Base_Test {
 contract SetOperator_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.setOperator(user);
     }
 
@@ -391,7 +405,7 @@ contract SetOperator_Test is Base_Test {
 contract SetOperatorAllowlist_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.setOperatorAllowlist(0x12345678, true);
     }
 
@@ -438,7 +452,7 @@ contract SetOperatorAllowlist_Test is Base_Test {
 contract CreateAccount_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.createAccount(DEPOSIT_AMOUNT);
     }
 
@@ -478,7 +492,7 @@ contract CreateAccount_Test is Base_Test {
 contract WithdrawCollateral_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.withdrawCollateral(DEPOSIT_AMOUNT);
     }
 
@@ -510,7 +524,7 @@ contract WithdrawCollateral_Test is Base_Test {
 contract RescueTokens_Test is Base_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.rescueTokens(address(token), DEPOSIT_AMOUNT);
     }
 
@@ -536,7 +550,7 @@ contract IsOperatorAllowed_Test is Base_Test {
         assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0x5bf9264c)); // execPerpOps
-                assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
+        assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x1eebd35e)); // buyLiquidations

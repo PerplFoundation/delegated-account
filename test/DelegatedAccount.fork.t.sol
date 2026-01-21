@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice Fork tests against Monad testnet
 /// @dev Run with: forge test --match-contract Fork
@@ -102,7 +103,7 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
 
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.createAccount(DEPOSIT_AMOUNT);
     }
 
@@ -120,23 +121,29 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
 // ============================================================================
 
 contract Fork_TransferOwnership_Test is Base_Fork_Test {
-    function test_WhenNewOwnerIsValid() external {
+    function test_WhenNewOwnerIsValid_TwoStepTransfer() external {
         address newOwner = makeAddr("newOwner");
 
-        // it should emit OwnershipTransferred event.
-        vm.expectEmit(true, true, false, false);
-        emit DelegatedAccount.OwnershipTransferred(owner, newOwner);
-
+        // Step 1: Transfer ownership (sets pending owner)
         vm.prank(owner);
         delegatedAccount.transferOwnership(newOwner);
 
-        // it should update owner.
+        // Owner should still be the original owner
+        assertEq(delegatedAccount.owner(), owner);
+        assertEq(delegatedAccount.pendingOwner(), newOwner);
+
+        // Step 2: New owner accepts ownership
+        vm.prank(newOwner);
+        delegatedAccount.acceptOwnership();
+
+        // Now ownership is transferred
         assertEq(delegatedAccount.owner(), newOwner);
+        assertEq(delegatedAccount.pendingOwner(), address(0));
     }
 
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.transferOwnership(user);
     }
 }
@@ -162,7 +169,7 @@ contract Fork_SetOperator_Test is Base_Fork_Test {
 
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.setOperator(user);
     }
 }
@@ -189,7 +196,7 @@ contract Fork_SetOperatorAllowlist_Test is Base_Fork_Test {
 
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.setOperatorAllowlist(0x12345678, true);
     }
 }
@@ -253,7 +260,7 @@ contract Fork_Fallback_Test is Base_Fork_Test {
 contract Fork_WithdrawCollateral_Test is Base_Fork_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.withdrawCollateral(DEPOSIT_AMOUNT);
     }
 }
@@ -265,7 +272,7 @@ contract Fork_WithdrawCollateral_Test is Base_Fork_Test {
 contract Fork_RescueTokens_Test is Base_Fork_Test {
     function test_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
-        vm.expectRevert(DelegatedAccount.OnlyOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         delegatedAccount.rescueTokens(address(token), DEPOSIT_AMOUNT);
     }
 
