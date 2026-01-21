@@ -1,0 +1,93 @@
+DelegatedAccount
+├── constructor
+│   ├── when owner is zero address
+│   │   └── it should revert with ZeroAddress.
+│   ├── when exchange is zero address
+│   │   └── it should revert with ZeroAddress.
+│   ├── when collateralToken is zero address
+│   │   └── it should revert with ZeroAddress.
+│   ├── when operator is zero address
+│   │   └── it should allow deployment (operator is optional).
+│   └── when all parameters are valid
+│       ├── it should set the owner.
+│       ├── it should set the operator.
+│       ├── it should set the exchange.
+│       ├── it should set the collateralToken.
+│       ├── it should give infinite approval to exchange.
+│       └── it should initialize operator allowlist with default selectors.
+├── fallback
+│   ├── when caller is not owner or operator
+│   │   └── it should revert with OnlyOwnerOrOperator.
+│   ├── when caller is owner
+│   │   ├── when exchange call fails
+│   │   │   └── it should bubble up the revert.
+│   │   └── when exchange call succeeds
+│   │       └── it should return the call result.
+│   └── when caller is operator
+│       ├── when account does not exist
+│       │   └── it should revert with AccountNotCreated.
+│       ├── when calldata length is less than 4 bytes
+│       │   └── it should revert with SelectorNotAllowed.
+│       ├── when selector is not allowlisted
+│       │   └── it should revert with SelectorNotAllowed.
+│       └── when selector is allowlisted
+│           ├── when exchange call fails
+│           │   └── it should bubble up the revert.
+│           └── when exchange call succeeds
+│               └── it should return the call result.
+├── transferOwnership
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       ├── when newOwner is zero address
+│       │   └── it should revert with ZeroAddress.
+│       └── when newOwner is valid
+│           ├── it should update owner.
+│           └── it should emit OwnershipTransferred event.
+├── setOperator
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       ├── it should update operator.
+│       └── it should emit OperatorUpdated event.
+├── setOperatorAllowlist
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       ├── when adding a selector
+│       │   ├── it should update allowlist.
+│       │   └── it should emit OperatorAllowlistUpdated event.
+│       └── when removing a selector
+│           ├── it should update allowlist.
+│           └── it should emit OperatorAllowlistUpdated event.
+├── createAccount
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       ├── when account already exists
+│       │   └── it should revert with AccountAlreadyCreated.
+│       └── when account does not exist
+│           ├── when exchange call fails
+│           │   └── it should revert with CallFailed.
+│           └── when exchange call succeeds
+│               ├── it should store the accountId.
+│               └── it should emit AccountCreated event.
+├── withdrawCollateral
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       ├── when exchange call fails
+│       │   └── it should revert with CallFailed.
+│       └── when exchange call succeeds
+│           ├── it should call withdrawCollateral on exchange.
+│           └── it should transfer tokens to owner.
+├── rescueTokens
+│   ├── when caller is not owner
+│   │   └── it should revert with OnlyOwner.
+│   └── when caller is owner
+│       └── it should transfer tokens to owner.
+└── isOperatorAllowed
+    ├── when selector is in default allowlist
+    │   └── it should return true.
+    └── when selector is not allowlisted
+        └── it should return false.
