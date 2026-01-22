@@ -158,8 +158,9 @@ abstract contract Base_Test is Test {
 contract Initialize_Test is Base_Test {
     function test_RevertWhen_OwnerIsZeroAddress() external {
         DelegatedAccount impl = new DelegatedAccount();
-        bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, address(0), operator, exchangeAddr, address(token));
+        bytes memory initData = abi.encodeWithSelector(
+            DelegatedAccount.initialize.selector, address(0), operator, exchangeAddr, address(token)
+        );
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
         new ERC1967Proxy(address(impl), initData);
     }
@@ -189,11 +190,12 @@ contract Initialize_Test is Base_Test {
     function test_WhenOperatorIsZeroAddress() external {
         // it should allow deployment (operator is optional)
         DelegatedAccount impl = new DelegatedAccount();
-        bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, address(0), exchangeAddr, address(token));
+        bytes memory initData = abi.encodeWithSelector(
+            DelegatedAccount.initialize.selector, owner, address(0), exchangeAddr, address(token)
+        );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         DelegatedAccount da = DelegatedAccount(payable(address(proxy)));
-        assertEq(da.operator(), address(0));
+        assertFalse(da.isOperator(address(0)));
     }
 
     function test_WhenAllParametersAreValid() external view {
@@ -201,7 +203,7 @@ contract Initialize_Test is Base_Test {
         assertEq(delegatedAccount.owner(), owner);
 
         // it should set the operator.
-        assertEq(delegatedAccount.operator(), operator);
+        assertTrue(delegatedAccount.isOperator(operator));
 
         // it should set the exchange.
         assertEq(delegatedAccount.exchange(), exchangeAddr);
@@ -392,34 +394,77 @@ contract TransferOwnership_Test is Base_Test {
 }
 
 // ============================================================================
-// SetOperator Tests
+// Operator Management Tests
 // ============================================================================
 
-contract SetOperator_Test is Base_Test {
-    function test_RevertWhen_CallerIsNotOwner() external {
+contract OperatorManagement_Test is Base_Test {
+    function test_AddOperator_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        delegatedAccount.setOperator(user);
+        delegatedAccount.addOperator(user);
     }
 
-    function test_WhenCallerIsOwner() external {
+    function test_AddOperator_RevertWhen_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
+        delegatedAccount.addOperator(address(0));
+    }
+
+    function test_AddOperator_WhenCallerIsOwner() external {
         address newOperator = makeAddr("newOperator");
 
-        // it should emit OperatorUpdated event.
-        vm.expectEmit(true, true, false, false);
-        emit DelegatedAccount.OperatorUpdated(operator, newOperator);
+        // it should emit OperatorAdded event.
+        vm.expectEmit(true, false, false, false);
+        emit DelegatedAccount.OperatorAdded(newOperator);
 
         vm.prank(owner);
-        delegatedAccount.setOperator(newOperator);
+        delegatedAccount.addOperator(newOperator);
 
-        // it should update operator.
-        assertEq(delegatedAccount.operator(), newOperator);
+        // it should add operator.
+        assertTrue(delegatedAccount.isOperator(newOperator));
     }
 
-    function test_WhenSettingOperatorToZeroAddress() external {
+    function test_RemoveOperator_RevertWhen_CallerIsNotOwner() external {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        delegatedAccount.removeOperator(operator);
+    }
+
+    function test_RemoveOperator_WhenCallerIsOwner() external {
+        // it should emit OperatorRemoved event.
+        vm.expectEmit(true, false, false, false);
+        emit DelegatedAccount.OperatorRemoved(operator);
+
         vm.prank(owner);
-        delegatedAccount.setOperator(address(0));
-        assertEq(delegatedAccount.operator(), address(0));
+        delegatedAccount.removeOperator(operator);
+
+        // it should remove operator.
+        assertFalse(delegatedAccount.isOperator(operator));
+    }
+
+    function test_MultipleOperators() external {
+        address operator2 = makeAddr("operator2");
+        address operator3 = makeAddr("operator3");
+
+        // Add multiple operators
+        vm.startPrank(owner);
+        delegatedAccount.addOperator(operator2);
+        delegatedAccount.addOperator(operator3);
+        vm.stopPrank();
+
+        // Verify all operators are set
+        assertTrue(delegatedAccount.isOperator(operator));
+        assertTrue(delegatedAccount.isOperator(operator2));
+        assertTrue(delegatedAccount.isOperator(operator3));
+
+        // Remove one operator
+        vm.prank(owner);
+        delegatedAccount.removeOperator(operator2);
+
+        // Verify operator2 is removed but others remain
+        assertTrue(delegatedAccount.isOperator(operator));
+        assertFalse(delegatedAccount.isOperator(operator2));
+        assertTrue(delegatedAccount.isOperator(operator3));
     }
 }
 
@@ -653,7 +698,7 @@ contract Upgrade_Test is Base_Test {
 
         address newOperator = makeAddr("newOperator");
         vm.prank(owner);
-        delegatedAccount.setOperator(newOperator);
+        delegatedAccount.addOperator(newOperator);
 
         bytes4 customSelector = 0x12345678;
         vm.prank(owner);
@@ -661,7 +706,8 @@ contract Upgrade_Test is Base_Test {
 
         // Store state before upgrade
         address ownerBefore = delegatedAccount.owner();
-        address operatorBefore = delegatedAccount.operator();
+        bool operatorBefore = delegatedAccount.isOperator(operator);
+        bool newOperatorBefore = delegatedAccount.isOperator(newOperator);
         address exchangeBefore = delegatedAccount.exchange();
         address collateralTokenBefore = address(delegatedAccount.collateralToken());
         uint256 accountIdBefore = delegatedAccount.accountId();
@@ -675,7 +721,8 @@ contract Upgrade_Test is Base_Test {
         // Verify state is preserved
         DelegatedAccountV2 upgraded = DelegatedAccountV2(payable(address(delegatedAccount)));
         assertEq(upgraded.owner(), ownerBefore);
-        assertEq(upgraded.operator(), operatorBefore);
+        assertEq(upgraded.isOperator(operator), operatorBefore);
+        assertEq(upgraded.isOperator(newOperator), newOperatorBefore);
         assertEq(upgraded.exchange(), exchangeBefore);
         assertEq(address(upgraded.collateralToken()), collateralTokenBefore);
         assertEq(upgraded.accountId(), accountIdBefore);

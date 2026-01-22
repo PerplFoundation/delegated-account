@@ -28,13 +28,14 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
     error AccountNotCreated();
 
     // ============ Events ============
-    event OperatorUpdated(address indexed previousOperator, address indexed newOperator);
+    event OperatorAdded(address indexed operator);
+    event OperatorRemoved(address indexed operator);
     event AccountCreated(uint256 indexed accountId);
     event OperatorAllowlistUpdated(bytes4 indexed selector, bool allowed);
     event ExchangeApprovalUpdated(uint256 amount);
 
     // ============ State ============
-    address public operator;
+    mapping(address => bool) public operators;
     address public exchange;
     IERC20 public collateralToken;
     uint256 public accountId;
@@ -72,7 +73,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
 
         __Ownable_init(_owner);
 
-        operator = _operator;
+        if (_operator != address(0)) {
+            operators[_operator] = true;
+        }
         exchange = _exchange;
         collateralToken = IERC20(_collateralToken);
 
@@ -100,19 +103,19 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
     // ============ Fallback - Forwards calls to Exchange ============
 
     /// @notice Forwards any call to the Exchange contract
-    /// @dev Owner can call anything; operator can only call allowlisted functions
+    /// @dev Owner can call anything; operators can only call allowlisted functions
     fallback() external {
         address _owner = owner();
-        address _operator = operator;
         address _exchange = exchange;
+        bool _isOperator = operators[msg.sender];
 
         // Must be owner or operator
-        if (msg.sender != _owner && msg.sender != _operator) {
+        if (msg.sender != _owner && !_isOperator) {
             revert OnlyOwnerOrOperator();
         }
 
-        // Check allowlist for operator
-        if (msg.sender == _operator) {
+        // Check allowlist for operators
+        if (_isOperator) {
             if (accountId == 0) revert AccountNotCreated();
             if (msg.data.length < 4) revert SelectorNotAllowed(bytes4(0));
             bytes4 selector = bytes4(msg.data[:4]);
@@ -139,12 +142,26 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
 
     // ============ Owner Management ============
 
-    /// @notice Update the operator address
-    /// @dev Set to address(0) to disable operator access
-    function setOperator(address newOperator) external onlyOwner {
-        address oldOperator = operator;
-        operator = newOperator;
-        emit OperatorUpdated(oldOperator, newOperator);
+    /// @notice Add an operator
+    /// @param _operator The address to add as operator
+    function addOperator(address _operator) external onlyOwner {
+        if (_operator == address(0)) revert ZeroAddress();
+        operators[_operator] = true;
+        emit OperatorAdded(_operator);
+    }
+
+    /// @notice Remove an operator
+    /// @param _operator The address to remove as operator
+    function removeOperator(address _operator) external onlyOwner {
+        operators[_operator] = false;
+        emit OperatorRemoved(_operator);
+    }
+
+    /// @notice Check if an address is an operator
+    /// @param _operator The address to check
+    /// @return True if the address is an operator
+    function isOperator(address _operator) external view returns (bool) {
+        return operators[_operator];
     }
 
     /// @notice Update operator allowlist

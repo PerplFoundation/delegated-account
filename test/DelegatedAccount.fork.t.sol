@@ -95,7 +95,7 @@ contract Fork_Initialize_Test is Base_Fork_Test {
         assertEq(delegatedAccount.owner(), owner);
 
         // it should set the operator.
-        assertEq(delegatedAccount.operator(), operator);
+        assertTrue(delegatedAccount.isOperator(operator));
 
         // it should set the exchange.
         assertEq(delegatedAccount.exchange(), MONAD_EXCHANGE);
@@ -189,28 +189,77 @@ contract Fork_TransferOwnership_Test is Base_Fork_Test {
 }
 
 // ============================================================================
-// Fork: SetOperator Tests
+// Fork: Operator Management Tests
 // ============================================================================
 
-contract Fork_SetOperator_Test is Base_Fork_Test {
-    function test_WhenCallerIsOwner() external {
+contract Fork_OperatorManagement_Test is Base_Fork_Test {
+    function test_AddOperator_WhenCallerIsOwner() external {
         address newOperator = makeAddr("newOperator");
 
-        // it should emit OperatorUpdated event.
-        vm.expectEmit(true, true, false, false);
-        emit DelegatedAccount.OperatorUpdated(operator, newOperator);
+        // it should emit OperatorAdded event.
+        vm.expectEmit(true, false, false, false);
+        emit DelegatedAccount.OperatorAdded(newOperator);
 
         vm.prank(owner);
-        delegatedAccount.setOperator(newOperator);
+        delegatedAccount.addOperator(newOperator);
 
-        // it should update operator.
-        assertEq(delegatedAccount.operator(), newOperator);
+        // it should add operator.
+        assertTrue(delegatedAccount.isOperator(newOperator));
     }
 
-    function test_RevertWhen_CallerIsNotOwner() external {
+    function test_AddOperator_RevertWhen_CallerIsNotOwner() external {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        delegatedAccount.setOperator(user);
+        delegatedAccount.addOperator(user);
+    }
+
+    function test_AddOperator_RevertWhen_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
+        delegatedAccount.addOperator(address(0));
+    }
+
+    function test_RemoveOperator_WhenCallerIsOwner() external {
+        // it should emit OperatorRemoved event.
+        vm.expectEmit(true, false, false, false);
+        emit DelegatedAccount.OperatorRemoved(operator);
+
+        vm.prank(owner);
+        delegatedAccount.removeOperator(operator);
+
+        // it should remove operator.
+        assertFalse(delegatedAccount.isOperator(operator));
+    }
+
+    function test_RemoveOperator_RevertWhen_CallerIsNotOwner() external {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        delegatedAccount.removeOperator(operator);
+    }
+
+    function test_MultipleOperators() external {
+        address operator2 = makeAddr("operator2");
+        address operator3 = makeAddr("operator3");
+
+        // Add multiple operators
+        vm.startPrank(owner);
+        delegatedAccount.addOperator(operator2);
+        delegatedAccount.addOperator(operator3);
+        vm.stopPrank();
+
+        // Verify all operators are set
+        assertTrue(delegatedAccount.isOperator(operator));
+        assertTrue(delegatedAccount.isOperator(operator2));
+        assertTrue(delegatedAccount.isOperator(operator3));
+
+        // Remove one operator
+        vm.prank(owner);
+        delegatedAccount.removeOperator(operator2);
+
+        // Verify operator2 is removed but others remain
+        assertTrue(delegatedAccount.isOperator(operator));
+        assertFalse(delegatedAccount.isOperator(operator2));
+        assertTrue(delegatedAccount.isOperator(operator3));
     }
 }
 

@@ -50,12 +50,25 @@ DelegatedAccount (UUPS Upgradeable)
 │   └── when caller is pending owner
 │       ├── it should transfer ownership.
 │       └── it should clear pendingOwner.
-├── setOperator
+├── addOperator
+│   ├── when caller is not owner
+│   │   └── it should revert with OwnableUnauthorizedAccount.
+│   ├── when operator is zero address
+│   │   └── it should revert with ZeroAddress.
+│   └── when caller is owner
+│       ├── it should add operator to mapping.
+│       └── it should emit OperatorAdded event.
+├── removeOperator
 │   ├── when caller is not owner
 │   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
-│       ├── it should update operator.
-│       └── it should emit OperatorUpdated event.
+│       ├── it should remove operator from mapping.
+│       └── it should emit OperatorRemoved event.
+├── isOperator
+│   ├── when address is an operator
+│   │   └── it should return true.
+│   └── when address is not an operator
+│       └── it should return false.
 ├── setOperatorAllowlist
 │   ├── when caller is not owner
 │   │   └── it should revert with OwnableUnauthorizedAccount.
