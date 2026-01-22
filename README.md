@@ -8,7 +8,7 @@ The DelegatedAccount contract enables market makers (MMs) to delegate trading op
 
 ## Design
 
-DelegatedAccount acts as a **proxy contract** that forwards calls to the Perpl Exchange. You interact with it using the Exchange's ABI - calls are automatically forwarded via the fallback function.
+DelegatedAccount is a **UUPS upgradeable proxy contract** that forwards calls to the Perpl Exchange. You interact with it using the Exchange's ABI - calls are automatically forwarded via the fallback function.
 
 ```
 Operator/Owner → DelegatedAccount → Exchange
@@ -83,6 +83,26 @@ export COLLATERAL_TOKEN=0x...
 Deploy:
 ```shell
 forge script script/DelegatedAccount.s.sol:DelegatedAccountScript --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
+```
+
+### Upgrade
+
+The contract uses the UUPS (Universal Upgradeable Proxy Standard) pattern. Only the owner can upgrade.
+
+Set environment variables:
+```shell
+export PROXY=0x...  # Address of the deployed proxy
+```
+
+Upgrade to new implementation:
+```shell
+forge script script/UpgradeDelegatedAccount.s.sol:UpgradeDelegatedAccountScript --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
+```
+
+Upgrade with initialization data (for migrations that need to call a function):
+```shell
+export INIT_DATA=0x...  # Encoded function call (optional)
+forge script script/UpgradeDelegatedAccount.s.sol:UpgradeDelegatedAccountScript --sig "runWithInitData()" --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
 ```
 
 ## Test Structure

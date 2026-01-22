@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
 
@@ -18,6 +19,7 @@ abstract contract Base_Fork_Test is Test {
 
     // ============ Contracts ============
     DelegatedAccount public delegatedAccount;
+    DelegatedAccount public implementation;
     IERC20 public token;
 
     // ============ Addresses ============
@@ -46,8 +48,15 @@ abstract contract Base_Fork_Test is Test {
         // Use real contracts on Monad testnet
         token = IERC20(MONAD_COLLATERAL_TOKEN);
 
-        // Deploy DelegatedAccount pointing to real exchange
-        delegatedAccount = new DelegatedAccount(owner, operator, MONAD_EXCHANGE, address(token));
+        // Deploy implementation
+        implementation = new DelegatedAccount();
+
+        // Deploy proxy with initialization
+        bytes memory initData = abi.encodeWithSelector(
+            DelegatedAccount.initialize.selector, owner, operator, MONAD_EXCHANGE, address(token)
+        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
         // Deal tokens for testing
         deal(address(token), owner, INITIAL_BALANCE);
@@ -62,13 +71,25 @@ abstract contract Base_Fork_Test is Test {
         vm.prank(owner);
         delegatedAccount.createAccount(amount);
     }
+
+    /// @notice Deploy a new DelegatedAccount proxy with given parameters
+    function _deployProxy(address _owner, address _operator, address _exchange, address _token)
+        internal
+        returns (DelegatedAccount)
+    {
+        DelegatedAccount impl = new DelegatedAccount();
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, _owner, _operator, _exchange, _token);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        return DelegatedAccount(payable(address(proxy)));
+    }
 }
 
 // ============================================================================
 // Fork: Constructor Tests
 // ============================================================================
 
-contract Fork_Constructor_Test is Base_Fork_Test {
+contract Fork_Initialize_Test is Base_Fork_Test {
     function test_WhenAllParametersAreValid() external view {
         // it should set the owner.
         assertEq(delegatedAccount.owner(), owner);
@@ -77,10 +98,10 @@ contract Fork_Constructor_Test is Base_Fork_Test {
         assertEq(delegatedAccount.operator(), operator);
 
         // it should set the exchange.
-        assertEq(delegatedAccount.EXCHANGE(), MONAD_EXCHANGE);
+        assertEq(delegatedAccount.exchange(), MONAD_EXCHANGE);
 
         // it should set the collateralToken.
-        assertEq(address(delegatedAccount.COLLATERAL_TOKEN()), MONAD_COLLATERAL_TOKEN);
+        assertEq(address(delegatedAccount.collateralToken()), MONAD_COLLATERAL_TOKEN);
 
         // it should initialize operator allowlist with default selectors.
         assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
@@ -119,7 +140,7 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
     function test_RevertWhen_ExchangeCallFails_BubblesUpExchangeError() external {
         // Deploy a new DelegatedAccount with minimal tokens (less than required)
         address newOwner = makeAddr("newOwner");
-        DelegatedAccount newDelegatedAccount = new DelegatedAccount(newOwner, operator, MONAD_EXCHANGE, address(token));
+        DelegatedAccount newDelegatedAccount = _deployProxy(newOwner, operator, MONAD_EXCHANGE, address(token));
 
         // Give it just 1 wei - not enough for Exchange minimum
         deal(address(token), address(newDelegatedAccount), 1);

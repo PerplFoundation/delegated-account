@@ -1,5 +1,5 @@
 DelegatedAccount (Fork Tests)
-├── constructor
+├── initialize
 │   └── when all parameters are valid
 │       ├── it should set the owner.
 │       ├── it should set the operator.

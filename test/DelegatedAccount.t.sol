@@ -4,7 +4,9 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
 
 /// @notice Mock Exchange that simulates the Perpl Exchange
@@ -75,6 +77,7 @@ contract MockExchange {
 
 abstract contract Base_Test is Test {
     DelegatedAccount public delegatedAccount;
+    DelegatedAccount public implementation;
     MockExchange public exchange;
     ERC20Mock public token;
 
@@ -103,7 +106,14 @@ abstract contract Base_Test is Test {
 
         token = new ERC20Mock();
 
-        delegatedAccount = new DelegatedAccount(owner, operator, exchangeAddr, address(token));
+        // Deploy implementation
+        implementation = new DelegatedAccount();
+
+        // Deploy proxy with initialization
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(token));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
         // Fund the delegated account and owner
         token.mint(address(delegatedAccount), INITIAL_BALANCE);
@@ -142,28 +152,47 @@ abstract contract Base_Test is Test {
 }
 
 // ============================================================================
-// Constructor Tests
+// Initialize Tests
 // ============================================================================
 
-contract Constructor_Test is Base_Test {
+contract Initialize_Test is Base_Test {
     function test_RevertWhen_OwnerIsZeroAddress() external {
+        DelegatedAccount impl = new DelegatedAccount();
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, address(0), operator, exchangeAddr, address(token));
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
-        new DelegatedAccount(address(0), operator, exchangeAddr, address(token));
+        new ERC1967Proxy(address(impl), initData);
     }
 
     function test_RevertWhen_ExchangeIsZeroAddress() external {
+        DelegatedAccount impl = new DelegatedAccount();
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, address(0), address(token));
         vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
-        new DelegatedAccount(owner, operator, address(0), address(token));
+        new ERC1967Proxy(address(impl), initData);
     }
 
     function test_RevertWhen_CollateralTokenIsZeroAddress() external {
+        DelegatedAccount impl = new DelegatedAccount();
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(0));
         vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
-        new DelegatedAccount(owner, operator, exchangeAddr, address(0));
+        new ERC1967Proxy(address(impl), initData);
+    }
+
+    function test_RevertWhen_AlreadyInitialized() external {
+        // Try to initialize again
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        delegatedAccount.initialize(owner, operator, exchangeAddr, address(token));
     }
 
     function test_WhenOperatorIsZeroAddress() external {
         // it should allow deployment (operator is optional)
-        DelegatedAccount da = new DelegatedAccount(owner, address(0), exchangeAddr, address(token));
+        DelegatedAccount impl = new DelegatedAccount();
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, address(0), exchangeAddr, address(token));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        DelegatedAccount da = DelegatedAccount(payable(address(proxy)));
         assertEq(da.operator(), address(0));
     }
 
@@ -175,10 +204,10 @@ contract Constructor_Test is Base_Test {
         assertEq(delegatedAccount.operator(), operator);
 
         // it should set the exchange.
-        assertEq(delegatedAccount.EXCHANGE(), exchangeAddr);
+        assertEq(delegatedAccount.exchange(), exchangeAddr);
 
         // it should set the collateralToken.
-        assertEq(address(delegatedAccount.COLLATERAL_TOKEN()), address(token));
+        assertEq(address(delegatedAccount.collateralToken()), address(token));
 
         // it should give infinite approval to exchange.
         assertEq(token.allowance(address(delegatedAccount), exchangeAddr), type(uint256).max);
@@ -578,5 +607,103 @@ contract IsOperatorAllowed_Test is Base_Test {
         assertFalse(delegatedAccount.operatorAllowlist(WITHDRAW_COLLATERAL));
         assertFalse(delegatedAccount.operatorAllowlist(XFER_ACCT_TO_PROTOCOL));
         assertFalse(delegatedAccount.operatorAllowlist(0x12345678));
+    }
+}
+
+// ============================================================================
+// Upgrade Tests
+// ============================================================================
+
+/// @notice Mock V2 implementation for testing upgrades
+contract DelegatedAccountV2 is DelegatedAccount {
+    uint256 public newVariable;
+
+    function setNewVariable(uint256 _value) external {
+        newVariable = _value;
+    }
+
+    function version() external pure returns (uint256) {
+        return 2;
+    }
+}
+
+contract Upgrade_Test is Base_Test {
+    function test_RevertWhen_CallerIsNotOwner() external {
+        DelegatedAccountV2 newImplementation = new DelegatedAccountV2();
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        delegatedAccount.upgradeToAndCall(address(newImplementation), "");
+    }
+
+    function test_WhenCallerIsOwner_CanUpgrade() external {
+        DelegatedAccountV2 newImplementation = new DelegatedAccountV2();
+
+        vm.prank(owner);
+        delegatedAccount.upgradeToAndCall(address(newImplementation), "");
+
+        // Verify the upgrade by calling the new version function
+        DelegatedAccountV2 upgraded = DelegatedAccountV2(payable(address(delegatedAccount)));
+        assertEq(upgraded.version(), 2);
+    }
+
+    function test_WhenUpgrading_StateIsPreserved() external {
+        // Set up some state before upgrade
+        _createAccount(DEPOSIT_AMOUNT);
+
+        address newOperator = makeAddr("newOperator");
+        vm.prank(owner);
+        delegatedAccount.setOperator(newOperator);
+
+        bytes4 customSelector = 0x12345678;
+        vm.prank(owner);
+        delegatedAccount.setOperatorAllowlist(customSelector, true);
+
+        // Store state before upgrade
+        address ownerBefore = delegatedAccount.owner();
+        address operatorBefore = delegatedAccount.operator();
+        address exchangeBefore = delegatedAccount.exchange();
+        address collateralTokenBefore = address(delegatedAccount.collateralToken());
+        uint256 accountIdBefore = delegatedAccount.accountId();
+        bool customSelectorAllowed = delegatedAccount.operatorAllowlist(customSelector);
+
+        // Upgrade
+        DelegatedAccountV2 newImplementation = new DelegatedAccountV2();
+        vm.prank(owner);
+        delegatedAccount.upgradeToAndCall(address(newImplementation), "");
+
+        // Verify state is preserved
+        DelegatedAccountV2 upgraded = DelegatedAccountV2(payable(address(delegatedAccount)));
+        assertEq(upgraded.owner(), ownerBefore);
+        assertEq(upgraded.operator(), operatorBefore);
+        assertEq(upgraded.exchange(), exchangeBefore);
+        assertEq(address(upgraded.collateralToken()), collateralTokenBefore);
+        assertEq(upgraded.accountId(), accountIdBefore);
+        assertTrue(upgraded.operatorAllowlist(customSelector) == customSelectorAllowed);
+
+        // Verify new functionality works
+        upgraded.setNewVariable(42);
+        assertEq(upgraded.newVariable(), 42);
+    }
+
+    function test_WhenUpgrading_CanUpgradeWithInitData() external {
+        DelegatedAccountV2 newImplementation = new DelegatedAccountV2();
+
+        // Upgrade and call setNewVariable in one transaction
+        bytes memory initData = abi.encodeWithSelector(DelegatedAccountV2.setNewVariable.selector, 123);
+
+        vm.prank(owner);
+        delegatedAccount.upgradeToAndCall(address(newImplementation), initData);
+
+        DelegatedAccountV2 upgraded = DelegatedAccountV2(payable(address(delegatedAccount)));
+        assertEq(upgraded.newVariable(), 123);
+        assertEq(upgraded.version(), 2);
+    }
+
+    function test_RevertWhen_UpgradingToNonUUPSImplementation() external {
+        // Try to upgrade to a non-UUPS contract (the mock exchange)
+        vm.prank(owner);
+        vm.expectRevert();
+        delegatedAccount.upgradeToAndCall(address(exchange), "");
     }
 }

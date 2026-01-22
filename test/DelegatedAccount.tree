@@ -1,13 +1,15 @@
-DelegatedAccount
-├── constructor
+DelegatedAccount (UUPS Upgradeable)
+├── initialize
 │   ├── when owner is zero address
 │   │   └── it should revert with OwnableInvalidOwner.
 │   ├── when exchange is zero address
 │   │   └── it should revert with ZeroAddress.
 │   ├── when collateralToken is zero address
 │   │   └── it should revert with ZeroAddress.
+│   ├── when already initialized
+│   │   └── it should revert with InvalidInitialization.
 │   ├── when operator is zero address
-│   │   └── it should allow deployment (operator is optional).
+│   │   └── it should allow initialization (operator is optional).
 │   └── when all parameters are valid
 │       ├── it should set the owner.
 │       ├── it should set the operator.
@@ -90,6 +92,15 @@ DelegatedAccount
 │   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       └── it should transfer tokens to owner.
+├── upgradeToAndCall
+│   ├── when caller is not owner
+│   │   └── it should revert with OwnableUnauthorizedAccount.
+│   └── when caller is owner
+│       ├── it should upgrade to the new implementation.
+│       ├── it should preserve all state after upgrade.
+│       ├── it should allow calling init data during upgrade.
+│       └── when new implementation is not UUPS compatible
+│           └── it should revert.
 └── isOperatorAllowed
     ├── when selector is in default allowlist
     │   └── it should return true.

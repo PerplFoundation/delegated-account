@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Mock ERC20 token for testing
 contract MockToken is ERC20 {
@@ -94,6 +95,7 @@ contract MockExchange {
 abstract contract Base_Test is Test {
     // ============ Contracts ============
     DelegatedAccount public delegatedAccount;
+    DelegatedAccount public implementation;
     MockToken public mockToken;
     MockExchange public exchange;
     IERC20 public token;
@@ -127,8 +129,14 @@ abstract contract Base_Test is Test {
         token = IERC20(address(mockToken));
         exchangeAddr = address(exchange);
 
-        // Deploy DelegatedAccount
-        delegatedAccount = new DelegatedAccount(owner, operator, exchangeAddr, address(token));
+        // Deploy implementation
+        implementation = new DelegatedAccount();
+
+        // Deploy proxy with initialization
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(token));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
         // Fund accounts
         mockToken.mint(owner, INITIAL_BALANCE);

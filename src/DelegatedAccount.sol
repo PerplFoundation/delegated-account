@@ -3,7 +3,9 @@ pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 
 /// @title DelegatedAccount
@@ -11,7 +13,8 @@ import {IExchange} from "../interfaces/IExchange.sol";
 ///         Call this contract with the Exchange's ABI - calls are automatically forwarded.
 ///         - Owner (MM): Can call any Exchange function
 ///         - Operator (hot wallet): Can only call allowlisted functions
-contract DelegatedAccount is Ownable2Step {
+/// @dev UUPS upgradeable contract. Deploy behind an ERC1967Proxy.
+contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
@@ -32,8 +35,8 @@ contract DelegatedAccount is Ownable2Step {
 
     // ============ State ============
     address public operator;
-    address public immutable EXCHANGE;
-    IERC20 public immutable COLLATERAL_TOKEN;
+    address public exchange;
+    IERC20 public collateralToken;
     uint256 public accountId;
 
     // Operator allowlist - only these selectors can be called by operator
@@ -43,14 +46,35 @@ contract DelegatedAccount is Ownable2Step {
     bytes4 private constant WITHDRAW_COLLATERAL = IExchange.withdrawCollateral.selector;
     bytes4 private constant CREATE_ACCOUNT = IExchange.createAccount.selector;
 
+    // ============ Storage Gap ============
+    /// @dev Reserved storage space to allow for layout changes in future upgrades
+    uint256[45] private __gap;
+
     // ============ Constructor ============
-    constructor(address _owner, address _operator, address _exchange, address _collateralToken) Ownable(_owner) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    // ============ Initializer ============
+    /// @notice Initializes the contract (replaces constructor for upgradeable pattern)
+    /// @param _owner The owner address (MM)
+    /// @param _operator The operator address (hot wallet)
+    /// @param _exchange The Perpl Exchange address
+    /// @param _collateralToken The collateral token address
+    function initialize(address _owner, address _operator, address _exchange, address _collateralToken)
+        external
+        initializer
+    {
         if (_exchange == address(0) || _collateralToken == address(0)) {
             revert ZeroAddress();
         }
+
+        __Ownable_init(_owner);
+
         operator = _operator;
-        EXCHANGE = _exchange;
-        COLLATERAL_TOKEN = IERC20(_collateralToken);
+        exchange = _exchange;
+        collateralToken = IERC20(_collateralToken);
 
         // Give Exchange infinite approval (trusted contract)
         IERC20(_collateralToken).forceApprove(_exchange, type(uint256).max);
@@ -67,6 +91,12 @@ contract DelegatedAccount is Ownable2Step {
         operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;
     }
 
+    // ============ UUPS Upgrade ============
+
+    /// @notice Authorizes an upgrade to a new implementation
+    /// @dev Only the owner can authorize upgrades
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
     // ============ Fallback - Forwards calls to Exchange ============
 
     /// @notice Forwards any call to the Exchange contract
@@ -74,6 +104,7 @@ contract DelegatedAccount is Ownable2Step {
     fallback() external {
         address _owner = owner();
         address _operator = operator;
+        address _exchange = exchange;
 
         // Must be owner or operator
         if (msg.sender != _owner && msg.sender != _operator) {
@@ -91,7 +122,7 @@ contract DelegatedAccount is Ownable2Step {
         }
 
         // Forward call to Exchange
-        (bool success, bytes memory returnData) = EXCHANGE.call(msg.data);
+        (bool success, bytes memory returnData) = _exchange.call(msg.data);
 
         // Bubble up the result
         if (!success) {
@@ -129,14 +160,14 @@ contract DelegatedAccount is Ownable2Step {
     /// @notice Create an account on the exchange
     /// @dev This wrapper is needed to store the returned accountId in contract state.
     ///      Cannot use fallback because we need to capture and decode the return value.
-    ///      Contract must have tokens before calling (infinite approval to Exchange set in constructor).
+    ///      Contract must have tokens before calling (infinite approval to Exchange set in initializer).
     /// @param amount Initial deposit amount
     function createAccount(uint256 amount) external onlyOwner {
         if (accountId != 0) revert AccountAlreadyCreated();
         if (amount == 0) revert ZeroAmount();
-        if (COLLATERAL_TOKEN.balanceOf(address(this)) < amount) revert InsufficientBalance();
+        if (collateralToken.balanceOf(address(this)) < amount) revert InsufficientBalance();
 
-        (bool success, bytes memory returnData) = EXCHANGE.call(abi.encodeWithSelector(CREATE_ACCOUNT, amount));
+        (bool success, bytes memory returnData) = exchange.call(abi.encodeWithSelector(CREATE_ACCOUNT, amount));
         if (!success) {
             assembly {
                 revert(add(returnData, 32), mload(returnData))
@@ -158,7 +189,7 @@ contract DelegatedAccount is Ownable2Step {
     function withdrawCollateral(uint256 amount) external onlyOwner {
         if (amount == 0) revert ZeroAmount();
 
-        (bool success, bytes memory returnData) = EXCHANGE.call(abi.encodeWithSelector(WITHDRAW_COLLATERAL, amount));
+        (bool success, bytes memory returnData) = exchange.call(abi.encodeWithSelector(WITHDRAW_COLLATERAL, amount));
         if (!success) {
             assembly {
                 revert(add(returnData, 32), mload(returnData))
@@ -166,9 +197,9 @@ contract DelegatedAccount is Ownable2Step {
         }
 
         // Transfer withdrawn tokens to owner
-        uint256 balance = COLLATERAL_TOKEN.balanceOf(address(this));
+        uint256 balance = collateralToken.balanceOf(address(this));
         if (balance > 0) {
-            COLLATERAL_TOKEN.safeTransfer(owner(), balance);
+            collateralToken.safeTransfer(owner(), balance);
         }
     }
 
@@ -186,7 +217,7 @@ contract DelegatedAccount is Ownable2Step {
     /// @dev Use 0 to revoke approval, type(uint256).max for infinite
     /// @param amount The new approval amount
     function setExchangeApproval(uint256 amount) external onlyOwner {
-        COLLATERAL_TOKEN.forceApprove(EXCHANGE, amount);
+        collateralToken.forceApprove(exchange, amount);
         emit ExchangeApprovalUpdated(amount);
     }
 }

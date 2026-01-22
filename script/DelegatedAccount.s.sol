@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract DelegatedAccountScript is Script {
     function run() public {
@@ -14,9 +15,16 @@ contract DelegatedAccountScript is Script {
 
         vm.startBroadcast();
 
-        DelegatedAccount delegatedAccount = new DelegatedAccount(owner, operator, exchange, collateralToken);
+        // Deploy implementation
+        DelegatedAccount implementation = new DelegatedAccount();
+        console.log("Implementation deployed at:", address(implementation));
 
-        console.log("DelegatedAccount deployed at:", address(delegatedAccount));
+        // Deploy proxy with initialization
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchange, collateralToken);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        console.log("Proxy (DelegatedAccount) deployed at:", address(proxy));
 
         vm.stopBroadcast();
     }
