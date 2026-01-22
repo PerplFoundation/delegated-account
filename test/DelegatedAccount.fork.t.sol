@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
 
 /// @notice Fork tests against Monad testnet
 /// @dev Run with: forge test --match-contract Fork
@@ -113,6 +114,24 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
         vm.prank(owner);
         vm.expectRevert(DelegatedAccount.AccountAlreadyCreated.selector);
         delegatedAccount.createAccount(DEPOSIT_AMOUNT);
+    }
+
+    function test_RevertWhen_ExchangeCallFails_BubblesUpExchangeError() external {
+        // Deploy a new DelegatedAccount with minimal tokens (less than required)
+        address newOwner = makeAddr("newOwner");
+        DelegatedAccount newDelegatedAccount = new DelegatedAccount(newOwner, operator, MONAD_EXCHANGE, address(token));
+
+        // Give it just 1 wei - not enough for Exchange minimum
+        deal(address(token), address(newDelegatedAccount), 1);
+
+        // Exchange should revert with InsufficentAmountToOpenAccount and error should bubble up
+        vm.prank(newOwner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IExchangeErrors.InsufficentAmountToOpenAccount.selector, address(newDelegatedAccount), 1
+            )
+        );
+        newDelegatedAccount.createAccount(1);
     }
 }
 

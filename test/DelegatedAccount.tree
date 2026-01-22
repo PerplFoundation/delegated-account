@@ -1,7 +1,7 @@
 DelegatedAccount
 ├── constructor
 │   ├── when owner is zero address
-│   │   └── it should revert with ZeroAddress.
+│   │   └── it should revert with OwnableInvalidOwner.
 │   ├── when exchange is zero address
 │   │   └── it should revert with ZeroAddress.
 │   ├── when collateralToken is zero address
@@ -35,24 +35,28 @@ DelegatedAccount
 │           │   └── it should bubble up the revert.
 │           └── when exchange call succeeds
 │               └── it should return the call result.
-├── transferOwnership
+├── transferOwnership (two-step)
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
-│       ├── when newOwner is zero address
-│       │   └── it should revert with ZeroAddress.
 │       └── when newOwner is valid
-│           ├── it should update owner.
-│           └── it should emit OwnershipTransferred event.
+│           ├── it should set pendingOwner.
+│           └── it should emit OwnershipTransferStarted event.
+├── acceptOwnership
+│   ├── when caller is not pending owner
+│   │   └── it should revert with OwnableUnauthorizedAccount.
+│   └── when caller is pending owner
+│       ├── it should transfer ownership.
+│       └── it should clear pendingOwner.
 ├── setOperator
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       ├── it should update operator.
 │       └── it should emit OperatorUpdated event.
 ├── setOperatorAllowlist
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       ├── when adding a selector
 │       │   ├── it should update allowlist.
@@ -62,28 +66,28 @@ DelegatedAccount
 │           └── it should emit OperatorAllowlistUpdated event.
 ├── createAccount
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       ├── when account already exists
 │       │   └── it should revert with AccountAlreadyCreated.
 │       └── when account does not exist
 │           ├── when exchange call fails
-│           │   └── it should revert with CallFailed.
+│           │   └── it should bubble up the Exchange error.
 │           └── when exchange call succeeds
 │               ├── it should store the accountId.
 │               └── it should emit AccountCreated event.
 ├── withdrawCollateral
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       ├── when exchange call fails
-│       │   └── it should revert with CallFailed.
+│       │   └── it should bubble up the Exchange error.
 │       └── when exchange call succeeds
 │           ├── it should call withdrawCollateral on exchange.
 │           └── it should transfer tokens to owner.
 ├── rescueTokens
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       └── it should transfer tokens to owner.
 └── isOperatorAllowed

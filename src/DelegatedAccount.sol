@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {IExchange} from "../interfaces/IExchange.sol";
 
 /// @title DelegatedAccount
 /// @notice A proxy-style contract that forwards calls to the Perpl Exchange.
@@ -16,7 +17,6 @@ contract DelegatedAccount is Ownable2Step {
     // ============ Errors ============
     error OnlyOwnerOrOperator();
     error SelectorNotAllowed(bytes4 selector);
-    error CallFailed(bytes returnData);
     error ZeroAddress();
     error ZeroAmount();
     error InsufficientBalance();
@@ -40,10 +40,8 @@ contract DelegatedAccount is Ownable2Step {
     mapping(bytes4 => bool) public operatorAllowlist;
 
     // ============ Function Selectors ============
-    // withdrawCollateral(uint256) - used in explicit withdrawal function
-    bytes4 private constant WITHDRAW_COLLATERAL = 0x6112fe2e;
-    // createAccount(uint256) - used in account creation
-    bytes4 private constant CREATE_ACCOUNT = 0xcab13915;
+    bytes4 private constant WITHDRAW_COLLATERAL = IExchange.withdrawCollateral.selector;
+    bytes4 private constant CREATE_ACCOUNT = IExchange.createAccount.selector;
 
     // ============ Constructor ============
     constructor(address _owner, address _operator, address _exchange, address _collateralToken) Ownable(_owner) {
@@ -58,16 +56,15 @@ contract DelegatedAccount is Ownable2Step {
         IERC20(_collateralToken).forceApprove(_exchange, type(uint256).max);
 
         // Initialize operator allowlist with Exchange function selectors
-        // Selector: bytes4(keccak256("functionSignature"))
-        operatorAllowlist[0x6b69ebbe] = true; // execOrder(uint256,(address,uint256,uint256,uint256,uint256,uint256,bool,uint8),bytes,(address,uint256,uint256,uint256,uint256,uint256,bool,uint8),bytes)
-        operatorAllowlist[0xaf3176da] = true; // execOrders((uint256,(address,uint256,uint256,uint256,uint256,uint256,bool,uint8),bytes,(address,uint256,uint256,uint256,uint256,uint256,bool,uint8),bytes)[],bool)
-        operatorAllowlist[0x5bf9264c] = true; // execPerpOps((uint8,bytes)[])
-        operatorAllowlist[0xf769f0d3] = true; // increasePositionCollateral(uint256,uint256)
-        operatorAllowlist[0x9c64b2b5] = true; // requestDecreasePositionCollateral(uint256)
-        operatorAllowlist[0x4a1feb12] = true; // decreasePositionCollateral(uint256,uint256,bool)
-        operatorAllowlist[0x1eebd35e] = true; // buyLiquidations((uint256,uint256,uint256,uint256)[],bool)
-        operatorAllowlist[0xbad4a01f] = true; // depositCollateral(uint256)
-        operatorAllowlist[0x7962f910] = true; // allowOrderForwarding(bool)
+        operatorAllowlist[IExchange.execOrder.selector] = true;
+        operatorAllowlist[IExchange.execOrders.selector] = true;
+        operatorAllowlist[IExchange.execPerpOps.selector] = true;
+        operatorAllowlist[IExchange.increasePositionCollateral.selector] = true;
+        operatorAllowlist[IExchange.requestDecreasePositionCollateral.selector] = true;
+        operatorAllowlist[IExchange.decreasePositionCollateral.selector] = true;
+        operatorAllowlist[IExchange.buyLiquidations.selector] = true;
+        operatorAllowlist[IExchange.depositCollateral.selector] = true;
+        operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;
     }
 
     // ============ Fallback - Forwards calls to Exchange ============
@@ -130,7 +127,9 @@ contract DelegatedAccount is Ownable2Step {
     // ============ Account Setup ============
 
     /// @notice Create an account on the exchange
-    /// @dev Contract must have tokens before calling (infinite approval to Exchange set in constructor)
+    /// @dev This wrapper is needed to store the returned accountId in contract state.
+    ///      Cannot use fallback because we need to capture and decode the return value.
+    ///      Contract must have tokens before calling (infinite approval to Exchange set in constructor).
     /// @param amount Initial deposit amount
     function createAccount(uint256 amount) external onlyOwner {
         if (accountId != 0) revert AccountAlreadyCreated();
@@ -138,7 +137,11 @@ contract DelegatedAccount is Ownable2Step {
         if (COLLATERAL_TOKEN.balanceOf(address(this)) < amount) revert InsufficientBalance();
 
         (bool success, bytes memory returnData) = EXCHANGE.call(abi.encodeWithSelector(CREATE_ACCOUNT, amount));
-        if (!success) revert CallFailed(returnData);
+        if (!success) {
+            assembly {
+                revert(add(returnData, 32), mload(returnData))
+            }
+        }
         if (returnData.length < 32) revert InvalidReturnData();
 
         accountId = abi.decode(returnData, (uint256));
@@ -148,13 +151,19 @@ contract DelegatedAccount is Ownable2Step {
     // ============ Withdrawal ============
 
     /// @notice Withdraw collateral from the exchange to the owner
-    /// @dev This explicit function ensures tokens are transferred to owner after withdrawal
+    /// @dev This wrapper is needed to transfer tokens to owner after Exchange withdrawal.
+    ///      Cannot use fallback because Exchange.withdrawCollateral sends tokens to msg.sender
+    ///      (this contract), requiring an additional transfer to the actual owner.
     /// @param amount Amount to withdraw from the exchange
     function withdrawCollateral(uint256 amount) external onlyOwner {
         if (amount == 0) revert ZeroAmount();
 
         (bool success, bytes memory returnData) = EXCHANGE.call(abi.encodeWithSelector(WITHDRAW_COLLATERAL, amount));
-        if (!success) revert CallFailed(returnData);
+        if (!success) {
+            assembly {
+                revert(add(returnData, 32), mload(returnData))
+            }
+        }
 
         // Transfer withdrawn tokens to owner
         uint256 balance = COLLATERAL_TOKEN.balanceOf(address(this));

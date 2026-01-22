@@ -9,26 +9,31 @@ DelegatedAccount (Fork Tests)
 │       └── it should initialize operator allowlist with default selectors.
 ├── createAccount
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   ├── when account already exists
 │   │   └── it should revert with AccountAlreadyCreated.
+│   ├── when exchange call fails
+│   │   └── it should bubble up the Exchange error.
 │   └── when account does not exist
 │       └── it should store the accountId from exchange.
-├── transferOwnership
+├── transferOwnership (two-step)
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when newOwner is valid
-│       ├── it should update owner.
-│       └── it should emit OwnershipTransferred event.
+│       ├── it should set pendingOwner.
+│       ├── it should emit OwnershipTransferStarted event.
+│       └── when pending owner accepts
+│           ├── it should transfer ownership.
+│           └── it should clear pendingOwner.
 ├── setOperator
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       ├── it should update operator.
 │       └── it should emit OperatorUpdated event.
 ├── setOperatorAllowlist
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when adding a selector
 │       ├── it should update allowlist.
 │       └── it should emit OperatorAllowlistUpdated event.
@@ -46,10 +51,10 @@ DelegatedAccount (Fork Tests)
 │       └── it should forward any call to exchange.
 ├── withdrawCollateral
 │   └── when caller is not owner
-│       └── it should revert with OnlyOwner.
+│       └── it should revert with OwnableUnauthorizedAccount.
 ├── rescueTokens
 │   ├── when caller is not owner
-│   │   └── it should revert with OnlyOwner.
+│   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       └── it should transfer tokens to owner.
 ├── isOperatorAllowed

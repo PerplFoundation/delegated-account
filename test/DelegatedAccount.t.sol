@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
 
 /// @notice Mock Exchange that simulates the Perpl Exchange
 contract MockExchange {
@@ -17,14 +18,21 @@ contract MockExchange {
         failReason = _failReason;
     }
 
+    function _revertWithReason() internal view {
+        bytes memory reason = failReason;
+        if (reason.length > 0) {
+            assembly {
+                revert(add(reason, 32), mload(reason))
+            }
+        } else {
+            revert();
+        }
+    }
+
     // createAccount(uint256) - 0xcab13915
     function createAccount(uint256) external returns (uint256) {
         if (shouldFail) {
-            assembly {
-                let ptr := mload(0x40)
-                let len := mload(sload(failReason.slot))
-                revert(ptr, len)
-            }
+            _revertWithReason();
         }
         return nextAccountId++;
     }
@@ -32,30 +40,21 @@ contract MockExchange {
     // withdrawCollateral(uint256) - 0x6112fe2e
     function withdrawCollateral(uint256) external view {
         if (shouldFail) {
-            assembly {
-                let ptr := mload(0x40)
-                revert(ptr, 0)
-            }
+            _revertWithReason();
         }
     }
 
     // depositCollateral(uint256) - 0xbad4a01f
     function depositCollateral(uint256) external view {
         if (shouldFail) {
-            assembly {
-                let ptr := mload(0x40)
-                revert(ptr, 0)
-            }
+            _revertWithReason();
         }
     }
 
     // execOrder(...) - 0x6b69ebbe (allowlisted for operator)
     function execOrder(bytes calldata) external view returns (bool) {
         if (shouldFail) {
-            assembly {
-                let ptr := mload(0x40)
-                revert(ptr, 0)
-            }
+            _revertWithReason();
         }
         return true;
     }
@@ -63,10 +62,7 @@ contract MockExchange {
     // Fallback to accept any call
     fallback() external payable {
         if (shouldFail) {
-            assembly {
-                let ptr := mload(0x40)
-                revert(ptr, 0)
-            }
+            _revertWithReason();
         }
     }
 
@@ -467,8 +463,26 @@ contract CreateAccount_Test is Base_Test {
     function test_RevertWhen_ExchangeCallFails() external {
         exchange.setShouldFail(true, "");
 
+        // Error bubbles up directly from Exchange (empty revert in this case)
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(DelegatedAccount.CallFailed.selector, ""));
+        vm.expectRevert();
+        delegatedAccount.createAccount(DEPOSIT_AMOUNT);
+    }
+
+    function test_RevertWhen_ExchangeCallFails_BubblesUpExchangeError() external {
+        // Set up Exchange to revert with InsufficentAmountToOpenAccount error
+        bytes memory errorData = abi.encodeWithSelector(
+            IExchangeErrors.InsufficentAmountToOpenAccount.selector, address(delegatedAccount), DEPOSIT_AMOUNT
+        );
+        exchange.setShouldFail(true, errorData);
+
+        // Error should bubble up directly from Exchange
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IExchangeErrors.InsufficentAmountToOpenAccount.selector, address(delegatedAccount), DEPOSIT_AMOUNT
+            )
+        );
         delegatedAccount.createAccount(DEPOSIT_AMOUNT);
     }
 
@@ -499,8 +513,9 @@ contract WithdrawCollateral_Test is Base_Test {
     function test_RevertWhen_ExchangeCallFails() external {
         exchange.setShouldFail(true, "");
 
+        // Error bubbles up directly from Exchange (empty revert in this case)
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(DelegatedAccount.CallFailed.selector, ""));
+        vm.expectRevert();
         delegatedAccount.withdrawCollateral(DEPOSIT_AMOUNT);
     }
 
