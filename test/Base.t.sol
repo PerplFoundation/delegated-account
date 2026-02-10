@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
 /// @notice Mock ERC20 token for testing
 contract MockToken is ERC20 {
@@ -96,6 +97,7 @@ abstract contract Base_Test is Test {
     // ============ Contracts ============
     DelegatedAccount public delegatedAccount;
     DelegatedAccount public implementation;
+    UpgradeableBeacon public beacon;
     MockToken public mockToken;
     MockExchange public exchange;
     IERC20 public token;
@@ -129,13 +131,14 @@ abstract contract Base_Test is Test {
         token = IERC20(address(mockToken));
         exchangeAddr = address(exchange);
 
-        // Deploy implementation
+        // Deploy implementation and beacon
         implementation = new DelegatedAccount();
+        beacon = new UpgradeableBeacon(address(implementation), address(this));
 
         // Deploy proxy with initialization
         bytes memory initData =
             abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(token));
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        BeaconProxy proxy = new BeaconProxy(address(beacon), initData);
         delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
         // Fund accounts

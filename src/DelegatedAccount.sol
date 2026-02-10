@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 
 /// @title DelegatedAccount
@@ -13,8 +12,8 @@ import {IExchange} from "../interfaces/IExchange.sol";
 ///         Call this contract with the Exchange's ABI - calls are automatically forwarded.
 ///         - Owner (MM): Can call any Exchange function
 ///         - Operator (hot wallet): Can only call allowlisted functions
-/// @dev UUPS upgradeable contract. Deploy behind an ERC1967Proxy.
-contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
+/// @dev Deploy behind a BeaconProxy via DelegatedAccountFactory.
+contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
@@ -93,12 +92,6 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
         operatorAllowlist[IExchange.depositCollateral.selector] = true;
         operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;
     }
-
-    // ============ UUPS Upgrade ============
-
-    /// @notice Authorizes an upgrade to a new implementation
-    /// @dev Only the owner can authorize upgrades
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     // ============ Fallback - Forwards calls to Exchange ============
 

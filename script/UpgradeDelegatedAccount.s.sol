@@ -3,51 +3,32 @@ pragma solidity ^0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
 import {DelegatedAccount} from "../src/DelegatedAccount.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
-/// @notice Script to upgrade an existing DelegatedAccount proxy to a new implementation
+/// @notice Script to upgrade all DelegatedAccount instances via the beacon
 /// @dev Run with: forge script script/UpgradeDelegatedAccount.s.sol --rpc-url <RPC_URL> --broadcast
+///      Must be called by the beacon owner.
 contract UpgradeDelegatedAccountScript is Script {
     function run() public {
-        // Load the proxy address from environment variable
-        address proxy = vm.envAddress("PROXY");
+        // Load the beacon address (from factory.beacon() or directly)
+        address beaconAddr = vm.envAddress("BEACON");
 
-        console.log("Upgrading proxy at:", proxy);
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
-        vm.startBroadcast();
+        UpgradeableBeacon beacon = UpgradeableBeacon(beaconAddr);
+        console.log("Current implementation:", beacon.implementation());
 
-        // Deploy new implementation
-        DelegatedAccount newImplementation = new DelegatedAccount();
-        console.log("New implementation deployed at:", address(newImplementation));
-
-        // Upgrade proxy to new implementation
-        DelegatedAccount(payable(proxy)).upgradeToAndCall(address(newImplementation), "");
-
-        console.log("Proxy upgraded successfully");
-
-        vm.stopBroadcast();
-    }
-
-    /// @notice Upgrade with initialization data (for migrations that need to call a function)
-    /// @dev Set INIT_DATA env var to the encoded function call, or leave empty for no init
-    function runWithInitData() public {
-        address proxy = vm.envAddress("PROXY");
-        bytes memory initData = vm.envOr("INIT_DATA", bytes(""));
-
-        console.log("Upgrading proxy at:", proxy);
-
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPrivateKey);
 
         // Deploy new implementation
         DelegatedAccount newImplementation = new DelegatedAccount();
         console.log("New implementation deployed at:", address(newImplementation));
 
-        // Upgrade proxy to new implementation with init data
-        DelegatedAccount(payable(proxy)).upgradeToAndCall(address(newImplementation), initData);
+        // Upgrade beacon — all proxies now use the new implementation
+        beacon.upgradeTo(address(newImplementation));
 
-        console.log("Proxy upgraded successfully");
-        if (initData.length > 0) {
-            console.log("Init data executed");
-        }
+        console.log("Beacon upgraded successfully");
+        console.log("All DelegatedAccount proxies now use:", address(newImplementation));
 
         vm.stopBroadcast();
     }
