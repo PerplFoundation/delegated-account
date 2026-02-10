@@ -6,13 +6,13 @@ import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {DelegatedAccountFactory} from "../src/DelegatedAccountFactory.sol";
 
 /// @notice Deploys the DelegatedAccountFactory (implementation + beacon created internally)
-/// @dev Run with: forge script script/DelegatedAccount.s.sol --rpc-url <RPC_URL> --broadcast
+/// @dev Run with: forge script script/DelegatedAccount.s.sol --rpc-url <RPC_URL> --broadcast --private-key <KEY>
+///      Or with Ledger: forge script script/DelegatedAccount.s.sol --rpc-url <RPC_URL> --broadcast --ledger
 contract DeployFactoryScript is Script {
     function run() public {
         address beaconOwner = vm.envAddress("BEACON_OWNER");
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
 
         // Deploy implementation
         DelegatedAccount implementation = new DelegatedAccount();
@@ -29,7 +29,8 @@ contract DeployFactoryScript is Script {
 }
 
 /// @notice Creates a new DelegatedAccount via the factory
-/// @dev Run with: forge script script/DelegatedAccount.s.sol:CreateAccountScript --rpc-url <RPC_URL> --broadcast
+/// @dev Run with: forge script script/DelegatedAccount.s.sol:CreateAccountScript --rpc-url <RPC_URL> --broadcast --private-key <KEY>
+///      Or with Ledger: forge script script/DelegatedAccount.s.sol:CreateAccountScript --rpc-url <RPC_URL> --broadcast --ledger
 contract CreateAccountScript is Script {
     function run() public {
         address factoryAddr = vm.envAddress("FACTORY");
@@ -37,9 +38,8 @@ contract CreateAccountScript is Script {
         address operator = vm.envAddress("OPERATOR");
         address exchange = vm.envAddress("EXCHANGE");
         address collateralToken = vm.envAddress("COLLATERAL_TOKEN");
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
 
         DelegatedAccountFactory factory = DelegatedAccountFactory(factoryAddr);
         address proxy = factory.create(owner, operator, exchange, collateralToken);
