@@ -37,12 +37,11 @@ contract CreateAccountScript is Script {
         address owner = vm.envAddress("OWNER");
         address operator = vm.envAddress("OPERATOR");
         address exchange = vm.envAddress("EXCHANGE");
-        address collateralToken = vm.envAddress("COLLATERAL_TOKEN");
 
         vm.startBroadcast();
 
         DelegatedAccountFactory factory = DelegatedAccountFactory(factoryAddr);
-        address proxy = factory.create(owner, operator, exchange, collateralToken);
+        address proxy = factory.create(owner, operator, exchange);
 
         console.log("DelegatedAccount deployed at:", proxy);
         console.log("Owner:", owner);

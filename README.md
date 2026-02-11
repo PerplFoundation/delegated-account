@@ -97,8 +97,7 @@ This deploys the DelegatedAccount implementation, the UpgradeableBeacon, and the
 export FACTORY=0x...          # Factory address from step 1
 export OWNER=0x...            # MM cold wallet
 export OPERATOR=0x...         # Hot wallet
-export EXCHANGE=0x...
-export COLLATERAL_TOKEN=0x...
+export EXCHANGE=0x...         # Collateral token is fetched from exchange automatically
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <KEY>

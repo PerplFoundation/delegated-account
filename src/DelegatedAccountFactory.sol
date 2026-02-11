@@ -36,16 +36,11 @@ contract DelegatedAccountFactory {
     /// @notice Deploy a new DelegatedAccount behind a BeaconProxy
     /// @param _owner The owner address (MM)
     /// @param _operator The initial operator address (hot wallet), or address(0) for none
-    /// @param _exchange The Perpl Exchange address
-    /// @param _collateralToken The collateral token address
+    /// @param _exchange The Perpl Exchange address (collateral token is fetched from it)
     /// @return proxy The address of the newly deployed DelegatedAccount proxy
-    function create(address _owner, address _operator, address _exchange, address _collateralToken)
-        external
-        returns (address proxy)
-    {
-        bytes memory initData = abi.encodeWithSelector(
-            DelegatedAccount.initialize.selector, _owner, _operator, _exchange, _collateralToken
-        );
+    function create(address _owner, address _operator, address _exchange) external returns (address proxy) {
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, _owner, _operator, _exchange);
         proxy = address(new BeaconProxy(address(beacon), initData));
         emit DelegatedAccountCreated(proxy, _owner, _operator);
     }

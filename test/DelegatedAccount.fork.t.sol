@@ -54,10 +54,9 @@ abstract contract Base_Fork_Test is Test {
         implementation = new DelegatedAccount();
         beacon = new UpgradeableBeacon(address(implementation), address(this));
 
-        // Deploy proxy with initialization
-        bytes memory initData = abi.encodeWithSelector(
-            DelegatedAccount.initialize.selector, owner, operator, MONAD_EXCHANGE, address(token)
-        );
+        // Deploy proxy with initialization (collateral token is fetched from exchange)
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, MONAD_EXCHANGE);
         BeaconProxy proxy = new BeaconProxy(address(beacon), initData);
         delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
@@ -76,12 +75,9 @@ abstract contract Base_Fork_Test is Test {
     }
 
     /// @notice Deploy a new DelegatedAccount proxy with given parameters
-    function _deployProxy(address _owner, address _operator, address _exchange, address _token)
-        internal
-        returns (DelegatedAccount)
-    {
+    function _deployProxy(address _owner, address _operator, address _exchange) internal returns (DelegatedAccount) {
         bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, _owner, _operator, _exchange, _token);
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, _owner, _operator, _exchange);
         BeaconProxy proxy = new BeaconProxy(address(beacon), initData);
         return DelegatedAccount(payable(address(proxy)));
     }
@@ -142,7 +138,7 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
     function test_RevertWhen_ExchangeCallFails_BubblesUpExchangeError() external {
         // Deploy a new DelegatedAccount with minimal tokens (less than required)
         address newOwner = makeAddr("newOwner");
-        DelegatedAccount newDelegatedAccount = _deployProxy(newOwner, operator, MONAD_EXCHANGE, address(token));
+        DelegatedAccount newDelegatedAccount = _deployProxy(newOwner, operator, MONAD_EXCHANGE);
 
         // Give it just 1 wei - not enough for Exchange minimum
         deal(address(token), address(newDelegatedAccount), 1);

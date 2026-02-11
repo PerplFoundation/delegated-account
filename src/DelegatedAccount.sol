@@ -60,13 +60,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     /// @notice Initializes the contract (replaces constructor for upgradeable pattern)
     /// @param _owner The owner address (MM)
     /// @param _operator The operator address (hot wallet)
-    /// @param _exchange The Perpl Exchange address
-    /// @param _collateralToken The collateral token address
-    function initialize(address _owner, address _operator, address _exchange, address _collateralToken)
-        external
-        initializer
-    {
-        if (_exchange == address(0) || _collateralToken == address(0)) {
+    /// @param _exchange The Perpl Exchange address (collateral token is fetched from it)
+    function initialize(address _owner, address _operator, address _exchange) external initializer {
+        if (_exchange == address(0)) {
             revert ZeroAddress();
         }
 
@@ -76,6 +72,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
             operators[_operator] = true;
         }
         exchange = _exchange;
+
+        // Fetch collateral token from the exchange (also validates exchange address)
+        (,,,, address _collateralToken,) = IExchange(_exchange).getExchangeInfo();
         collateralToken = IERC20(_collateralToken);
 
         // Give Exchange infinite approval (trusted contract)

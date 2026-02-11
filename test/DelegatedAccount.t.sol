@@ -16,6 +16,11 @@ contract MockExchange {
     uint256 public nextAccountId = 1;
     bool public shouldFail;
     bytes public failReason;
+    address public collateralToken;
+
+    constructor(address _collateralToken) {
+        collateralToken = _collateralToken;
+    }
 
     function setShouldFail(bool _shouldFail, bytes memory _failReason) external {
         shouldFail = _shouldFail;
@@ -31,6 +36,11 @@ contract MockExchange {
         } else {
             revert();
         }
+    }
+
+    // getExchangeInfo() - returns exchange info including collateral token
+    function getExchangeInfo() external view returns (uint256, uint256, uint256, uint256, address, address) {
+        return (0, 0, 0, 18, collateralToken, address(0));
     }
 
     // createAccount(uint256) - 0xcab13915
@@ -106,10 +116,10 @@ abstract contract Base_Test is Test {
         user = makeAddr("user");
         beaconOwner = makeAddr("beaconOwner");
 
-        exchange = new MockExchange();
-        exchangeAddr = address(exchange);
-
         token = new ERC20Mock();
+
+        exchange = new MockExchange(address(token));
+        exchangeAddr = address(exchange);
 
         // Deploy implementation and beacon
         implementation = new DelegatedAccount();
@@ -117,7 +127,7 @@ abstract contract Base_Test is Test {
 
         // Deploy proxy with initialization
         bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(token));
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr);
         BeaconProxy proxy = new BeaconProxy(address(beacon), initData);
         delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
@@ -163,23 +173,15 @@ abstract contract Base_Test is Test {
 
 contract Initialize_Test is Base_Test {
     function test_RevertWhen_OwnerIsZeroAddress() external {
-        bytes memory initData = abi.encodeWithSelector(
-            DelegatedAccount.initialize.selector, address(0), operator, exchangeAddr, address(token)
-        );
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, address(0), operator, exchangeAddr);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
         new BeaconProxy(address(beacon), initData);
     }
 
     function test_RevertWhen_ExchangeIsZeroAddress() external {
         bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, address(0), address(token));
-        vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
-        new BeaconProxy(address(beacon), initData);
-    }
-
-    function test_RevertWhen_CollateralTokenIsZeroAddress() external {
-        bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(0));
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, address(0));
         vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
         new BeaconProxy(address(beacon), initData);
     }
@@ -187,14 +189,13 @@ contract Initialize_Test is Base_Test {
     function test_RevertWhen_AlreadyInitialized() external {
         // Try to initialize again
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        delegatedAccount.initialize(owner, operator, exchangeAddr, address(token));
+        delegatedAccount.initialize(owner, operator, exchangeAddr);
     }
 
     function test_WhenOperatorIsZeroAddress() external {
         // it should allow deployment (operator is optional)
-        bytes memory initData = abi.encodeWithSelector(
-            DelegatedAccount.initialize.selector, owner, address(0), exchangeAddr, address(token)
-        );
+        bytes memory initData =
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, address(0), exchangeAddr);
         BeaconProxy proxy = new BeaconProxy(address(beacon), initData);
         DelegatedAccount da = DelegatedAccount(payable(address(proxy)));
         assertFalse(da.isOperator(address(0)));
@@ -738,7 +739,7 @@ contract Upgrade_Test is Base_Test {
     function test_WhenUpgrading_AllProxiesAreUpgraded() external {
         // Deploy a second proxy behind the same beacon
         bytes memory initData =
-            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr, address(token));
+            abi.encodeWithSelector(DelegatedAccount.initialize.selector, owner, operator, exchangeAddr);
         BeaconProxy proxy2 = new BeaconProxy(address(beacon), initData);
         DelegatedAccount da2 = DelegatedAccount(payable(address(proxy2)));
 
@@ -771,8 +772,8 @@ contract Factory_Test is Test {
         operator = makeAddr("operator");
         beaconOwner = makeAddr("beaconOwner");
 
-        exchange = new MockExchange();
         token = new ERC20Mock();
+        exchange = new MockExchange(address(token));
 
         DelegatedAccount implementation = new DelegatedAccount();
         factory = new DelegatedAccountFactory(address(implementation), beaconOwner);
@@ -790,7 +791,7 @@ contract Factory_Test is Test {
     }
 
     function test_Create_DeploysWorkingDelegatedAccount() external {
-        address proxy = factory.create(owner, operator, address(exchange), address(token));
+        address proxy = factory.create(owner, operator, address(exchange));
 
         DelegatedAccount da = DelegatedAccount(payable(proxy));
         assertEq(da.owner(), owner);
@@ -803,20 +804,20 @@ contract Factory_Test is Test {
         vm.expectEmit(false, true, true, false);
         emit DelegatedAccountFactory.DelegatedAccountCreated(address(0), owner, operator);
 
-        factory.create(owner, operator, address(exchange), address(token));
+        factory.create(owner, operator, address(exchange));
     }
 
     function test_Create_AnyoneCanCall() external {
         address anyone = makeAddr("anyone");
         vm.prank(anyone);
-        address proxy = factory.create(owner, operator, address(exchange), address(token));
+        address proxy = factory.create(owner, operator, address(exchange));
         assertTrue(proxy != address(0));
     }
 
     function test_BeaconUpgrade_AppliesToAllFactoryInstances() external {
         // Create two instances
-        address proxy1 = factory.create(owner, operator, address(exchange), address(token));
-        address proxy2 = factory.create(owner, operator, address(exchange), address(token));
+        address proxy1 = factory.create(owner, operator, address(exchange));
+        address proxy2 = factory.create(owner, operator, address(exchange));
 
         // Upgrade beacon
         DelegatedAccountV2 newImpl = new DelegatedAccountV2();
