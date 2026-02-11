@@ -83,7 +83,6 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
         // Initialize operator allowlist with Exchange function selectors
         operatorAllowlist[IExchange.execOrder.selector] = true;
         operatorAllowlist[IExchange.execOrders.selector] = true;
-        operatorAllowlist[IExchange.execPerpOps.selector] = true;
         operatorAllowlist[IExchange.increasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.requestDecreasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.decreasePositionCollateral.selector] = true;

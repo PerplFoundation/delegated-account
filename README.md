@@ -35,7 +35,7 @@ Operator/Owner → DelegatedAccount (BeaconProxy) → Exchange
 ### Default Operator Allowlist
 
 The operator can call these Exchange functions by default:
-- `execOrder`, `execOrders`, `execPerpOps` - trading
+- `execOrder`, `execOrders` - trading
 - `increasePositionCollateral`, `requestDecreasePositionCollateral`, `decreasePositionCollateral` - position management
 - `buyLiquidations` - liquidation buying
 - `depositCollateral` - deposits (via fallback)

@@ -220,7 +220,6 @@ contract Initialize_Test is Base_Test {
         // it should initialize operator allowlist with default selectors.
         assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
-        assertTrue(delegatedAccount.operatorAllowlist(0x5bf9264c)); // execPerpOps
         assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
@@ -641,7 +640,6 @@ contract IsOperatorAllowed_Test is Base_Test {
         // Default allowlisted selectors should return true
         assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
-        assertTrue(delegatedAccount.operatorAllowlist(0x5bf9264c)); // execPerpOps
         assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
