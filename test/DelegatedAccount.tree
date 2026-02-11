@@ -1,4 +1,4 @@
-DelegatedAccount (UUPS Upgradeable)
+DelegatedAccount (Beacon Proxy)
 ├── initialize
 │   ├── when owner is zero address
 │   │   └── it should revert with OwnableInvalidOwner.
@@ -105,17 +105,26 @@ DelegatedAccount (UUPS Upgradeable)
 │   │   └── it should revert with OwnableUnauthorizedAccount.
 │   └── when caller is owner
 │       └── it should transfer tokens to owner.
-├── upgradeToAndCall
-│   ├── when caller is not owner
+├── beacon upgrade
+│   ├── when caller is not beacon owner
 │   │   └── it should revert with OwnableUnauthorizedAccount.
-│   └── when caller is owner
+│   └── when caller is beacon owner
 │       ├── it should upgrade to the new implementation.
 │       ├── it should preserve all state after upgrade.
-│       ├── it should allow calling init data during upgrade.
-│       └── when new implementation is not UUPS compatible
-│           └── it should revert.
-└── isOperatorAllowed
-    ├── when selector is in default allowlist
-    │   └── it should return true.
-    └── when selector is not allowlisted
-        └── it should return false.
+│       └── it should upgrade all proxies behind the beacon.
+├── isOperatorAllowed
+│   ├── when selector is in default allowlist
+│   │   └── it should return true.
+│   └── when selector is not allowlisted
+│       └── it should return false.
+└── factory
+    ├── when implementation is zero address
+    │   └── it should revert with ZeroAddress.
+    ├── when beacon owner is zero address
+    │   └── it should revert with ZeroAddress.
+    ├── create
+    │   ├── it should deploy a working DelegatedAccount.
+    │   ├── it should emit DelegatedAccountCreated event.
+    │   └── anyone can call it.
+    └── beacon upgrade via factory
+        └── it should apply to all factory-created instances.

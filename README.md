@@ -8,11 +8,15 @@ The DelegatedAccount contract enables market makers (MMs) to delegate trading op
 
 ## Design
 
-DelegatedAccount is a **UUPS upgradeable proxy contract** that forwards calls to the Perpl Exchange. You interact with it using the Exchange's ABI - calls are automatically forwarded via the fallback function.
+DelegatedAccount is deployed behind a **Beacon Proxy** via the `DelegatedAccountFactory`. You interact with it using the Exchange's ABI - calls are automatically forwarded via the fallback function. All instances share the same beacon, so upgrading the beacon upgrades every DelegatedAccount in a single transaction.
 
 ```
-Operator/Owner → DelegatedAccount → Exchange
-                    (fallback)
+DelegatedAccountFactory
+  └── creates BeaconProxy instances
+        └── delegates to UpgradeableBeacon → DelegatedAccount implementation
+
+Operator/Owner → DelegatedAccount (BeaconProxy) → Exchange
+                       (fallback)
 ```
 
 ### How it works
@@ -26,12 +30,12 @@ Operator/Owner → DelegatedAccount → Exchange
 
 - **Owner (MM)**: Can withdraw funds, manage the contract, and execute any function on the exchange
 - **Operator (hot wallet)**: Can execute trades but cannot withdraw funds
+- **Beacon Owner (admin/multisig)**: Can upgrade all DelegatedAccount instances via the beacon
 
 ### Default Operator Allowlist
-TODO: double check if this list is correct or if we are missing any.
 
 The operator can call these Exchange functions by default:
-- `execOrder`, `execOrders`, `execPerpOps` - trading
+- `execOrder`, `execOrders` - trading
 - `increasePositionCollateral`, `requestDecreasePositionCollateral`, `decreasePositionCollateral` - position management
 - `buyLiquidations` - liquidation buying
 - `depositCollateral` - deposits (via fallback)
@@ -72,38 +76,58 @@ forge test --fork-url https://monad-testnet.drpc.org
 
 ### Deploy
 
-Set environment variables:
+All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
+- `--private-key <key>` for EOA
+- `--ledger` for Ledger hardware wallet
+
+#### 1. Deploy the Factory (one-time)
+
 ```shell
-export OWNER=0x...
-export OPERATOR=0x...
-export EXCHANGE=0x...
-export COLLATERAL_TOKEN=0x...
+export BEACON_OWNER=0x...  # Admin/multisig that can upgrade all instances
+
+forge script script/DelegatedAccount.s.sol:DeployFactoryScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <KEY>
 ```
 
-Deploy:
+This deploys the DelegatedAccount implementation, the UpgradeableBeacon, and the factory.
+
+#### 2. Create a DelegatedAccount
+
 ```shell
-forge script script/DelegatedAccount.s.sol:DelegatedAccountScript --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
+export FACTORY=0x...          # Factory address from step 1
+export OWNER=0x...            # MM cold wallet
+export OPERATOR=0x...         # Hot wallet
+export EXCHANGE=0x...         # Collateral token is fetched from exchange automatically
+
+forge script script/DelegatedAccount.s.sol:CreateAccountScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <KEY>
 ```
 
 ### Upgrade
 
-The contract uses the UUPS (Universal Upgradeable Proxy Standard) pattern. Only the owner can upgrade.
+The beacon proxy pattern allows upgrading all DelegatedAccount instances in a single transaction. Only the beacon owner can upgrade.
 
-Set environment variables:
+#### Step 1: Deploy new implementation
+
 ```shell
-export PROXY=0x...  # Address of the deployed proxy
+export BEACON=0x...  # Beacon address (from factory.beacon())
+
+forge script script/UpgradeDelegatedAccount.s.sol:DeployImplementationScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <KEY>
 ```
 
-Upgrade to new implementation:
+#### Step 2: Upgrade the beacon
+
+**EOA / Ledger:**
+
 ```shell
-forge script script/UpgradeDelegatedAccount.s.sol:UpgradeDelegatedAccountScript --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
+export NEW_IMPLEMENTATION=0x...  # From step 1 output
+
+forge script script/UpgradeDelegatedAccount.s.sol:UpgradeBeaconScript \
+  --rpc-url <RPC_URL> --broadcast --ledger
 ```
 
-Upgrade with initialization data (for migrations that need to call a function):
-```shell
-export INIT_DATA=0x...  # Encoded function call (optional)
-forge script script/UpgradeDelegatedAccount.s.sol:UpgradeDelegatedAccountScript --sig "runWithInitData()" --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
-```
+**Multisig:** If the Beacon's owner is a multisig, propose `beacon.upgradeTo(<new_implementation>)` via the Safe UI.
 
 ## Test Structure
 

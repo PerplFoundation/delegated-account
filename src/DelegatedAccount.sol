@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 
 /// @title DelegatedAccount
@@ -13,8 +12,8 @@ import {IExchange} from "../interfaces/IExchange.sol";
 ///         Call this contract with the Exchange's ABI - calls are automatically forwarded.
 ///         - Owner (MM): Can call any Exchange function
 ///         - Operator (hot wallet): Can only call allowlisted functions
-/// @dev UUPS upgradeable contract. Deploy behind an ERC1967Proxy.
-contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
+/// @dev Deploy behind a BeaconProxy via DelegatedAccountFactory.
+contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
@@ -61,13 +60,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
     /// @notice Initializes the contract (replaces constructor for upgradeable pattern)
     /// @param _owner The owner address (MM)
     /// @param _operator The operator address (hot wallet)
-    /// @param _exchange The Perpl Exchange address
-    /// @param _collateralToken The collateral token address
-    function initialize(address _owner, address _operator, address _exchange, address _collateralToken)
-        external
-        initializer
-    {
-        if (_exchange == address(0) || _collateralToken == address(0)) {
+    /// @param _exchange The Perpl Exchange address (collateral token is fetched from it)
+    function initialize(address _owner, address _operator, address _exchange) external initializer {
+        if (_exchange == address(0)) {
             revert ZeroAddress();
         }
 
@@ -77,6 +72,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
             operators[_operator] = true;
         }
         exchange = _exchange;
+
+        // Fetch collateral token from the exchange (also validates exchange address)
+        (,,,, address _collateralToken,) = IExchange(_exchange).getExchangeInfo();
         collateralToken = IERC20(_collateralToken);
 
         // Give Exchange infinite approval (trusted contract)
@@ -85,7 +83,6 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
         // Initialize operator allowlist with Exchange function selectors
         operatorAllowlist[IExchange.execOrder.selector] = true;
         operatorAllowlist[IExchange.execOrders.selector] = true;
-        operatorAllowlist[IExchange.execPerpOps.selector] = true;
         operatorAllowlist[IExchange.increasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.requestDecreasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.decreasePositionCollateral.selector] = true;
@@ -93,12 +90,6 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, UUPSUpgrade
         operatorAllowlist[IExchange.depositCollateral.selector] = true;
         operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;
     }
-
-    // ============ UUPS Upgrade ============
-
-    /// @notice Authorizes an upgrade to a new implementation
-    /// @dev Only the owner can authorize upgrades
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     // ============ Fallback - Forwards calls to Exchange ============
 
