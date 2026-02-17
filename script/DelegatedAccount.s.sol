@@ -55,7 +55,8 @@ contract CreateAccountScript is Script {
 }
 
 /// @notice Sets exchange approval, creates exchange account, and optionally enables forwarding
-/// @dev Run with: forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript --rpc-url <RPC_URL> --broadcast --private-key <KEY>
+/// @dev Must be run by the DelegatedAccount owner.
+///      Run with: forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
 ///      Or with Ledger: forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript --rpc-url <RPC_URL> --broadcast --ledger
 contract SetupDelegatedAccountScript is Script {
     using SafeERC20 for IERC20;
@@ -65,7 +66,6 @@ contract SetupDelegatedAccountScript is Script {
     function run() public {
         address delegatedAccountAddr = vm.envAddress("DELEGATED_ACCOUNT");
         uint256 depositAmount = vm.envUint("DEPOSIT_AMOUNT");
-        uint256 approvalAmount = vm.envOr("APPROVAL_AMOUNT", type(uint256).max);
         bool enableForwarding = vm.envOr("ENABLE_FORWARDING", false);
 
         if (depositAmount < MIN_DEPOSIT) revert("DEPOSIT_AMOUNT below minimum");
@@ -75,16 +75,22 @@ contract SetupDelegatedAccountScript is Script {
 
         vm.startBroadcast();
 
-        // Transfer collateral tokens to the DelegatedAccount
-        collateralToken.safeTransfer(delegatedAccountAddr, depositAmount);
+        // Transfer collateral tokens to the DelegatedAccount if needed
+        uint256 balance = collateralToken.balanceOf(delegatedAccountAddr);
+        if (balance < depositAmount) {
+            uint256 deficit = depositAmount - balance;
+            collateralToken.safeTransfer(delegatedAccountAddr, deficit);
+            console.log("Transferred collateral:", deficit);
+        }
 
-        // Set exchange approval
-        delegatedAccount.setExchangeApproval(approvalAmount);
-        console.log("Exchange approval set to:", approvalAmount);
+        // Set exchange approval for the deposit amount
+        delegatedAccount.setExchangeApproval(depositAmount);
+        console.log("Exchange approval set to:", depositAmount);
 
         // Create exchange account with initial deposit
         delegatedAccount.createAccount(depositAmount);
         console.log("Exchange account created with deposit:", depositAmount);
+        console.log("Account ID:", delegatedAccount.accountId());
 
         // Optionally enable order forwarding
         if (enableForwarding) {
