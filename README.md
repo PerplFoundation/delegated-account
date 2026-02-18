@@ -32,21 +32,26 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 ### Deployed Contracts
 
+#### Monad Mainnet
+
+| Contract | Address |
+|----------|---------|
+| Factory | `0x676ad363bb61AACc1480335729F75B21408490b9` |
+| Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` |
+
 #### Monad Testnet
 
 | Contract | Address |
 |----------|---------|
-| Factory | `0xeC827421505972a2AE9C320302d3573B42363C26` |
+| Factory | `0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc` |
 | Exchange | `0x9c216d1ab3e0407b3d6f1d5e9effe6d01c326ab7` |
-
-RPC: `https://monad-testnet.drpc.org`
 
 ### 1. Create a DelegatedAccount
 
 Anyone can create a DelegatedAccount via the factory:
 
 ```shell
-export FACTORY=0xeC827421505972a2AE9C320302d3573B42363C26
+export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
 export OWNER=0x...            # MM cold wallet
 export OPERATOR=0x...         # Hot wallet
 export EXCHANGE=0x9c216d1ab3e0407b3d6f1d5e9effe6d01c326ab7
