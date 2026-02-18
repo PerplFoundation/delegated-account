@@ -70,7 +70,8 @@ export DEPOSIT_AMOUNT=100000000 # Raw token units (min $100 = 100_000_000)
 # export ENABLE_FORWARDING=true # Optional, defaults to false
 
 forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript \
-  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY> \
+  --gas-estimate-multiplier 300
 ```
 
 ## Development
