@@ -44,7 +44,7 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 | Contract | Address |
 |----------|---------|
 | Factory | `0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc` |
-| Exchange | `0x9c216d1ab3e0407b3d6f1d5e9effe6d01c326ab7` |
+| Exchange | `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` |
 
 ### 1. Create a DelegatedAccount
 
@@ -54,7 +54,7 @@ Anyone can create a DelegatedAccount via the factory:
 export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
 export OWNER=0x...            # MM cold wallet
 export OPERATOR=0x...         # Hot wallet
-export EXCHANGE=0x9c216d1ab3e0407b3d6f1d5e9effe6d01c326ab7
+export EXCHANGE=0x1964C32f0bE608E7D29302AFF5E61268E72080cc
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <KEY>
