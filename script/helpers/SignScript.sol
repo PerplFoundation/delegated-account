@@ -23,5 +23,4 @@ abstract contract SignScript is Script {
         (uint8 v, bytes32 r, bytes32 s) = privKey != 0 ? vm.sign(privKey, digest) : vm.sign(signer, digest);
         return abi.encodePacked(r, s, v);
     }
-
 }

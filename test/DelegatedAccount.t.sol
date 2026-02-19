@@ -148,7 +148,8 @@ abstract contract Base_Test is Test {
         view
         returns (bytes memory sig)
     {
-        (sig,) = signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
+        (sig,) =
+            signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
     }
 
     function _createAccount(uint256 amount) internal {
@@ -871,7 +872,9 @@ contract Factory_Test is Test {
         view
         returns (bytes memory sig)
     {
-        (sig,) = signOperatorScript.sign(address(factory), _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
+        (sig,) = signOperatorScript.sign(
+            address(factory), _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey
+        );
     }
 
     /// @notice Sign owner consent for factory.createWithSignature() using the factory's EIP-712 domain

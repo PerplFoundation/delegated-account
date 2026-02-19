@@ -79,7 +79,8 @@ abstract contract Base_Fork_Test is Test {
         view
         returns (bytes memory sig)
     {
-        (sig,) = signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
+        (sig,) =
+            signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
     }
 
     /// @notice Create an account on the exchange via the DelegatedAccount
