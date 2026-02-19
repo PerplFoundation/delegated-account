@@ -170,6 +170,12 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
         emit OperatorRemoved(_operator);
     }
 
+    /// @notice Allows an operator to remove themselves from this account
+    function resignOperator() external {
+        operators[msg.sender] = false;
+        emit OperatorRemoved(msg.sender);
+    }
+
     /// @notice Check if an address is an operator
     /// @param _operator The address to check
     /// @return True if the address is an operator

@@ -515,6 +515,24 @@ contract OperatorManagement_Test is Base_Test {
         assertFalse(delegatedAccount.isOperator(operator));
     }
 
+    function test_ResignOperator_WhenCallerIsOperator() external {
+        vm.expectEmit(true, false, false, false);
+        emit DelegatedAccount.OperatorRemoved(operator);
+
+        vm.prank(operator);
+        delegatedAccount.resignOperator();
+
+        assertFalse(delegatedAccount.isOperator(operator));
+    }
+
+    function test_ResignOperator_WhenCallerIsNotOperator() external {
+        // Non-operator calling is a no-op (idempotent, no revert)
+        vm.prank(user);
+        delegatedAccount.resignOperator();
+
+        assertFalse(delegatedAccount.isOperator(user));
+    }
+
     function test_MultipleOperators() external {
         (address operator2, uint256 operator2Key) = makeAddrAndKey("operator2");
         (address operator3, uint256 operator3Key) = makeAddrAndKey("operator3");
