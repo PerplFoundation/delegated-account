@@ -44,6 +44,13 @@ contract DelegatedAccountFactory is EIP712 {
     /// @notice Per-operator nonce for AssignOperator signature replay protection
     mapping(address => uint256) public operatorNonces;
 
+    // ============ View ============
+
+    /// @notice Returns the EIP-712 domain separator for this contract
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
     // ============ Constructor ============
     /// @notice Deploys the factory and creates the beacon
     /// @param _implementation The initial DelegatedAccount implementation address
@@ -64,11 +71,11 @@ contract DelegatedAccountFactory is EIP712 {
     /// @notice Deploy a new DelegatedAccount behind a BeaconProxy.
     ///         msg.sender becomes the owner of the new account.
     /// @dev If an operator is specified, they must provide an EIP-712 consent signature
-    ///      proving they agreed to be assigned to msg.sender as owner.
+    ///      proving they agreed to be assigned as operator.
     ///      Pass _operator = address(0) to create without an operator (no signature needed).
     /// @param _operator The initial operator address (hot wallet), or address(0) for none
     /// @param _opDeadline Unix timestamp after which the operator signature is invalid (ignored if no operator)
-    /// @param _opSig EIP-712 signature from _operator over (owner, deadline) (ignored if no operator)
+    /// @param _opSig EIP-712 signature from _operator over (owner, nonce, deadline) (ignored if no operator)
     /// @return proxy The address of the newly deployed DelegatedAccount proxy
     function create(address _operator, uint256 _opDeadline, bytes calldata _opSig) external returns (address proxy) {
         address owner = msg.sender;
@@ -81,13 +88,13 @@ contract DelegatedAccountFactory is EIP712 {
     /// @notice Deploy a new DelegatedAccount using an EIP-712 signature from the owner
     /// @dev Allows a third party to create the account on behalf of the owner.
     ///      The owner signs off-chain over (owner, operator, nonce, deadline).
-    ///      If an operator is specified, they must also provide an EIP-712 signature over (owner, deadline).
+    ///      If an operator is specified, they must also provide an EIP-712 signature over (owner, nonce, deadline).
     /// @param _owner The owner address (MM)
     /// @param _operator The initial operator address (hot wallet), or address(0) for none
     /// @param _deadline Unix timestamp after which the owner signature is invalid
     /// @param _ownerSig EIP-712 signature from _owner over (owner, operator, nonce, deadline)
     /// @param _opDeadline Unix timestamp after which the operator signature is invalid (ignored if no operator)
-    /// @param _opSig EIP-712 signature from _operator over (owner, deadline) (ignored if no operator)
+    /// @param _opSig EIP-712 signature from _operator over (owner, nonce, deadline) (ignored if no operator)
     /// @return proxy The address of the newly deployed DelegatedAccount proxy
     function createWithSignature(
         address _owner,

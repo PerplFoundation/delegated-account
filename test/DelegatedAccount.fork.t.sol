@@ -8,6 +8,7 @@ import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol"
 import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
+import {SignOperatorScript} from "../script/DelegatedAccount.s.sol";
 
 /// @notice Fork tests against Monad testnet
 /// @dev Run with: forge test --match-contract Fork
@@ -23,6 +24,7 @@ abstract contract Base_Fork_Test is Test {
     DelegatedAccount public implementation;
     UpgradeableBeacon public beacon;
     IERC20 public token;
+    SignOperatorScript public signOperatorScript;
 
     // ============ Addresses ============
     address public owner;
@@ -42,6 +44,8 @@ abstract contract Base_Fork_Test is Test {
     function setUp() public virtual {
         // Create fork at pinned block number for deterministic tests
         vm.createSelectFork(MONAD_RPC_URL, FORK_BLOCK_NUMBER);
+
+        signOperatorScript = new SignOperatorScript();
 
         // Create addresses
         owner = makeAddr("owner");
@@ -73,28 +77,9 @@ abstract contract Base_Fork_Test is Test {
     function _signAddOperator(address _delegatedAccount, address _owner, uint256 _deadline, uint256 _operatorPrivKey)
         internal
         view
-        returns (bytes memory)
+        returns (bytes memory sig)
     {
-        bytes32 domainSeparator = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("DelegatedAccount"),
-                keccak256("1"),
-                block.chainid,
-                _delegatedAccount
-            )
-        );
-        bytes32 structHash = keccak256(
-            abi.encode(
-                DelegatedAccount(_delegatedAccount).ASSIGN_OPERATOR_TYPEHASH(),
-                _owner,
-                DelegatedAccount(_delegatedAccount).operatorNonces(vm.addr(_operatorPrivKey)),
-                _deadline
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_operatorPrivKey, digest);
-        return abi.encodePacked(r, s, v);
+        (sig,) = signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
     }
 
     /// @notice Create an account on the exchange via the DelegatedAccount
