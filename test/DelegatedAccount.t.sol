@@ -762,11 +762,12 @@ contract Factory_Test is Test {
     ERC20Mock public token;
 
     address public owner;
+    uint256 public ownerKey;
     address public operator;
     address public beaconOwner;
 
     function setUp() public {
-        owner = makeAddr("owner");
+        (owner, ownerKey) = makeAddrAndKey("owner");
         operator = makeAddr("operator");
         beaconOwner = makeAddr("beaconOwner");
 
@@ -775,6 +776,28 @@ contract Factory_Test is Test {
 
         DelegatedAccount implementation = new DelegatedAccount();
         factory = new DelegatedAccountFactory(address(implementation), beaconOwner);
+    }
+
+    function _signCreate(address _owner, address _operator, address _exchange, uint256 _deadline, uint256 _privateKey)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("DelegatedAccountFactory"),
+                keccak256("1"),
+                block.chainid,
+                address(factory)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(factory.CREATE_TYPEHASH(), _owner, _operator, _exchange, factory.nonces(_owner), _deadline)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_privateKey, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function test_RevertWhen_ImplementationIsZeroAddress() external {
@@ -789,6 +812,7 @@ contract Factory_Test is Test {
     }
 
     function test_Create_DeploysWorkingDelegatedAccount() external {
+        vm.prank(owner);
         address proxy = factory.create(owner, operator, address(exchange));
 
         DelegatedAccount da = DelegatedAccount(payable(proxy));
@@ -802,19 +826,82 @@ contract Factory_Test is Test {
         vm.expectEmit(false, true, true, false);
         emit DelegatedAccountFactory.DelegatedAccountCreated(address(0), owner, operator);
 
+        vm.prank(owner);
         factory.create(owner, operator, address(exchange));
     }
 
-    function test_Create_AnyoneCanCall() external {
+    function test_Create_RevertsIfNotOwner() external {
         address anyone = makeAddr("anyone");
         vm.prank(anyone);
-        address proxy = factory.create(owner, operator, address(exchange));
-        assertTrue(proxy != address(0));
+        vm.expectRevert(DelegatedAccountFactory.Unauthorized.selector);
+        factory.create(owner, operator, address(exchange));
+    }
+
+    function test_CreateWithSignature_DeploysWorkingDelegatedAccount() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, ownerKey);
+
+        address proxy = factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+
+        DelegatedAccount da = DelegatedAccount(payable(proxy));
+        assertEq(da.owner(), owner);
+        assertTrue(da.isOperator(operator));
+        assertEq(da.exchange(), address(exchange));
+        assertEq(address(da.collateralToken()), address(token));
+    }
+
+    function test_CreateWithSignature_EmitsEvent() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, ownerKey);
+
+        vm.expectEmit(false, true, true, false);
+        emit DelegatedAccountFactory.DelegatedAccountCreated(address(0), owner, operator);
+
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+    }
+
+    function test_CreateWithSignature_IncrementsNonce() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        assertEq(factory.nonces(owner), 0);
+
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, ownerKey);
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+
+        assertEq(factory.nonces(owner), 1);
+    }
+
+    function test_CreateWithSignature_RevertsOnReplay() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, ownerKey);
+
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+
+        vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+    }
+
+    function test_CreateWithSignature_RevertsIfExpired() external {
+        uint256 deadline = block.timestamp - 1;
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, ownerKey);
+
+        vm.expectRevert(DelegatedAccountFactory.SignatureExpired.selector);
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
+    }
+
+    function test_CreateWithSignature_RevertsIfInvalidSig() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        (, uint256 wrongKey) = makeAddrAndKey("wrong");
+        bytes memory sig = _signCreate(owner, operator, address(exchange), deadline, wrongKey);
+
+        vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
+        factory.createWithSignature(owner, operator, address(exchange), deadline, sig);
     }
 
     function test_BeaconUpgrade_AppliesToAllFactoryInstances() external {
         // Create two instances
+        vm.prank(owner);
         address proxy1 = factory.create(owner, operator, address(exchange));
+        vm.prank(owner);
         address proxy2 = factory.create(owner, operator, address(exchange));
 
         // Upgrade beacon

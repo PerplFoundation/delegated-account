@@ -36,19 +36,19 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 | Contract | Address |
 |----------|---------|
-| Factory | `0x676ad363bb61AACc1480335729F75B21408490b9` |
+| Factory | `TBD` |
 | Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` |
 
 #### Monad Testnet
 
 | Contract | Address |
 |----------|---------|
-| Factory | `0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc` |
+| Factory | `TBD` |
 | Exchange | `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` |
 
 ### 1. Create a DelegatedAccount
 
-Anyone can create a DelegatedAccount via the factory:
+Must be run by the **intended owner** of the DelegatedAccount, the private key used to broadcast must correspond to the `OWNER` address:
 
 ```shell
 export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
@@ -57,7 +57,7 @@ export OPERATOR=0x...         # Hot wallet
 export EXCHANGE=0x1964C32f0bE608E7D29302AFF5E61268E72080cc
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
-  --rpc-url <RPC_URL> --broadcast --private-key <KEY>
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
 ```
 
 ### 2. Set Up the Exchange Account
