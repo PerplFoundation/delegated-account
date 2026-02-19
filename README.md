@@ -48,13 +48,24 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 ### 1. Create a DelegatedAccount
 
-Must be run by the **intended owner** of the DelegatedAccount, the private key used to broadcast must correspond to the `OWNER` address:
+The broadcast signer automatically becomes the owner. The exchange is fixed at factory deployment and does not need to be specified.
+
+**Without an operator** (add one later via step 3):
 
 ```shell
 export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
-export OWNER=0x...            # MM cold wallet
-export OPERATOR=0x...         # Hot wallet
-export EXCHANGE=0x1964C32f0bE608E7D29302AFF5E61268E72080cc
+
+forge script script/DelegatedAccount.s.sol:CreateAccountScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+```
+
+**With an operator at creation time** (operator must sign off-chain first):
+
+```shell
+export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
+export OPERATOR=0x...          # Operator address
+export OP_DEADLINE=<timestamp> # Unix timestamp for sig expiry
+export OP_SIG=0x...            # Operator's EIP-712 AssignOperator signature
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
@@ -72,6 +83,18 @@ export DEPOSIT_AMOUNT=100000000 # Raw token units (min $100 = 100_000_000)
 forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY> \
   --gas-estimate-multiplier 300
+```
+
+### 3. Add an Operator (optional)
+
+The operator must provide an EIP-712 `AssignOperator` signature consenting to be assigned to your account. Call `addOperator()` from the owner:
+
+```solidity
+// Operator signs off-chain:
+// AssignOperator(address owner, uint256 deadline)
+// verifyingContract = DelegatedAccount address, name = "DelegatedAccount", version = "1"
+
+delegatedAccount.addOperator(operator, deadline, operatorSig);
 ```
 
 ## Development

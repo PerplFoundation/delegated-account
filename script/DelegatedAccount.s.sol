@@ -14,6 +14,7 @@ import {IExchange} from "../interfaces/IExchange.sol";
 contract DeployFactoryScript is Script {
     function run() public {
         address beaconOwner = vm.envAddress("BEACON_OWNER");
+        address exchange = vm.envAddress("EXCHANGE");
 
         vm.startBroadcast();
 
@@ -22,33 +23,47 @@ contract DeployFactoryScript is Script {
         console.log("Implementation deployed at:", address(implementation));
 
         // Deploy factory (creates beacon internally)
-        DelegatedAccountFactory factory = new DelegatedAccountFactory(address(implementation), beaconOwner);
+        DelegatedAccountFactory factory = new DelegatedAccountFactory(address(implementation), beaconOwner, exchange);
         console.log("Factory deployed at:", address(factory));
         console.log("Beacon deployed at:", address(factory.beacon()));
         console.log("Beacon owner:", beaconOwner);
+        console.log("Exchange:", exchange);
 
         vm.stopBroadcast();
     }
 }
 
-/// @notice Creates a new DelegatedAccount via the factory
-/// @dev Run with: forge script script/DelegatedAccount.s.sol:CreateAccountScript --rpc-url <RPC_URL> --broadcast --private-key <KEY>
-///      Or with Ledger: forge script script/DelegatedAccount.s.sol:CreateAccountScript --rpc-url <RPC_URL> --broadcast --ledger
+/// @notice Creates a new DelegatedAccount via the factory.
+///         The broadcast signer becomes the owner of the new account.
+/// @dev Operator is optional.
+///
+///      Without operator:
+///        forge script script/DelegatedAccount.s.sol:CreateAccountScript \
+///          --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+///
+///      With operator:
+///        export OPERATOR=0x...
+///        export OP_DEADLINE=<unix_timestamp>
+///        export OP_SIG=0x<hex_encoded_sig>
+///        forge script script/DelegatedAccount.s.sol:CreateAccountScript \
+///          --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
 contract CreateAccountScript is Script {
     function run() public {
         address factoryAddr = vm.envAddress("FACTORY");
-        address owner = vm.envAddress("OWNER");
-        address operator = vm.envAddress("OPERATOR");
-        address exchange = vm.envAddress("EXCHANGE");
+        address operator = vm.envOr("OPERATOR", address(0));
+        uint256 opDeadline = vm.envOr("OP_DEADLINE", uint256(0));
+        bytes memory opSig = vm.envOr("OP_SIG", new bytes(0));
 
         vm.startBroadcast();
 
         DelegatedAccountFactory factory = DelegatedAccountFactory(factoryAddr);
-        address proxy = factory.create(owner, operator, exchange);
+        address proxy = factory.create(operator, opDeadline, opSig);
 
         console.log("DelegatedAccount deployed at:", proxy);
-        console.log("Owner:", owner);
-        console.log("Operator:", operator);
+        console.log("Exchange:", factory.EXCHANGE());
+        if (operator != address(0)) {
+            console.log("Operator:", operator);
+        }
 
         vm.stopBroadcast();
     }

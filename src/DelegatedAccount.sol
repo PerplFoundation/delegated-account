@@ -3,8 +3,10 @@ pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 
 /// @title DelegatedAccount
@@ -13,7 +15,7 @@ import {IExchange} from "../interfaces/IExchange.sol";
 ///         - Owner (MM): Can call any Exchange function
 ///         - Operator (hot wallet): Can only call allowlisted functions
 /// @dev Deploy behind a BeaconProxy via DelegatedAccountFactory.
-contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
+contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgradeable {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
@@ -25,6 +27,8 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     error InvalidReturnData();
     error AccountAlreadyCreated();
     error AccountNotCreated();
+    error SignatureExpired();
+    error InvalidSignature();
 
     // ============ Events ============
     event OperatorAdded(address indexed operator);
@@ -32,6 +36,11 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     event AccountCreated(uint256 indexed accountId);
     event OperatorAllowlistUpdated(bytes4 indexed selector, bool allowed);
     event ExchangeApprovalUpdated(uint256 amount);
+
+    // ============ Constants ============
+    /// @notice EIP-712 typehash for operator assignment consent.
+    ///         Operator signs over (owner, deadline) to consent to being assigned.
+    bytes32 public constant ASSIGN_OPERATOR_TYPEHASH = keccak256("AssignOperator(address owner,uint256 deadline)");
 
     // ============ State ============
     mapping(address => bool) public operators;
@@ -67,6 +76,7 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
         }
 
         __Ownable_init(_owner);
+        __EIP712_init("DelegatedAccount", "1");
 
         if (_operator != address(0)) {
             operators[_operator] = true;
@@ -134,9 +144,15 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable {
     // ============ Owner Management ============
 
     /// @notice Add an operator
+    /// @dev The operator must sign over (owner, deadline) to approve being added.
     /// @param _operator The address to add as operator
-    function addOperator(address _operator) external onlyOwner {
+    /// @param _deadline Unix timestamp after which the operator signature is invalid
+    /// @param _sig EIP-712 signature from _operator over (owner, deadline)
+    function addOperator(address _operator, uint256 _deadline, bytes calldata _sig) external onlyOwner {
         if (_operator == address(0)) revert ZeroAddress();
+        if (block.timestamp > _deadline) revert SignatureExpired();
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(ASSIGN_OPERATOR_TYPEHASH, owner(), _deadline)));
+        if (ECDSA.recover(digest, _sig) != _operator) revert InvalidSignature();
         operators[_operator] = true;
         emit OperatorAdded(_operator);
     }

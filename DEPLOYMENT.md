@@ -8,12 +8,13 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 ```shell
 export BEACON_OWNER=0x...  # Admin/multisig that can upgrade all instances
+export EXCHANGE=0x...      # Perpl Exchange address (immutable)
 
 forge script script/DelegatedAccount.s.sol:DeployFactoryScript \
   --rpc-url <RPC_URL> --broadcast --private-key <KEY>
 ```
 
-This deploys the DelegatedAccount implementation, the UpgradeableBeacon, and the factory.
+This deploys the DelegatedAccount implementation, the UpgradeableBeacon, and the factory. The exchange address is stored as an immutable on the factory and cannot be changed after deployment.
 
 ## Upgrade
 
