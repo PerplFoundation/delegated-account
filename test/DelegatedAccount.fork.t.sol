@@ -84,8 +84,14 @@ abstract contract Base_Fork_Test is Test {
                 _delegatedAccount
             )
         );
-        bytes32 structHash =
-            keccak256(abi.encode(DelegatedAccount(_delegatedAccount).ASSIGN_OPERATOR_TYPEHASH(), _owner, _deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                DelegatedAccount(_delegatedAccount).ASSIGN_OPERATOR_TYPEHASH(),
+                _owner,
+                DelegatedAccount(_delegatedAccount).operatorNonces(vm.addr(_operatorPrivKey)),
+                _deadline
+            )
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(_operatorPrivKey, digest);
         return abi.encodePacked(r, s, v);

@@ -154,8 +154,14 @@ abstract contract Base_Test is Test {
                 _delegatedAccount
             )
         );
-        bytes32 structHash =
-            keccak256(abi.encode(DelegatedAccount(_delegatedAccount).ASSIGN_OPERATOR_TYPEHASH(), _owner, _deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                DelegatedAccount(_delegatedAccount).ASSIGN_OPERATOR_TYPEHASH(),
+                _owner,
+                DelegatedAccount(_delegatedAccount).operatorNonces(vm.addr(_operatorPrivKey)),
+                _deadline
+            )
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(_operatorPrivKey, digest);
         return abi.encodePacked(r, s, v);
@@ -468,6 +474,24 @@ contract OperatorManagement_Test is Base_Test {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signAddOperator(address(delegatedAccount), owner, deadline, wrongKey);
 
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccount.InvalidSignature.selector);
+        delegatedAccount.addOperator(newOperator, deadline, sig);
+    }
+
+    function test_AddOperator_RevertsOnOpNonceReplay() external {
+        (address newOperator, uint256 newOperatorKey) = makeAddrAndKey("newOperator");
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signAddOperator(address(delegatedAccount), owner, deadline, newOperatorKey);
+
+        vm.prank(owner);
+        delegatedAccount.addOperator(newOperator, deadline, sig);
+
+        // Remove operator so we can attempt to re-add with same sig
+        vm.prank(owner);
+        delegatedAccount.removeOperator(newOperator);
+
+        // Replaying the same signature fails (nonce was consumed)
         vm.prank(owner);
         vm.expectRevert(DelegatedAccount.InvalidSignature.selector);
         delegatedAccount.addOperator(newOperator, deadline, sig);
@@ -850,7 +874,11 @@ contract Factory_Test is Test {
                 address(factory)
             )
         );
-        bytes32 structHash = keccak256(abi.encode(factory.ASSIGN_OPERATOR_TYPEHASH(), _owner, _deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                factory.ASSIGN_OPERATOR_TYPEHASH(), _owner, factory.operatorNonces(vm.addr(_operatorPrivKey)), _deadline
+            )
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(_operatorPrivKey, digest);
         return abi.encodePacked(r, s, v);
@@ -939,6 +967,19 @@ contract Factory_Test is Test {
         factory.create(operator, deadline, opSig);
     }
 
+    function test_Create_WithOperator_RevertsOnOpNonceReplay() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory opSig = _signOperatorConsent(owner, deadline, operatorKey);
+
+        vm.prank(owner);
+        factory.create(operator, deadline, opSig);
+
+        // Replaying the same operator signature fails (nonce was consumed)
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
+        factory.create(operator, deadline, opSig);
+    }
+
     function test_Create_WithOperator_RevertsIfOpSigInvalid() external {
         uint256 deadline = block.timestamp + 1 hours;
         (, uint256 wrongKey) = makeAddrAndKey("wrong");
@@ -1004,13 +1045,14 @@ contract Factory_Test is Test {
 
     function test_BeaconUpgrade_AppliesToAllFactoryInstances() external {
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory opSig = _signOperatorConsent(owner, deadline, operatorKey);
 
+        bytes memory opSig1 = _signOperatorConsent(owner, deadline, operatorKey);
         vm.prank(owner);
-        address proxy1 = factory.create(operator, deadline, opSig);
+        address proxy1 = factory.create(operator, deadline, opSig1);
 
+        bytes memory opSig2 = _signOperatorConsent(owner, deadline, operatorKey); // nonce=1 now
         vm.prank(owner);
-        address proxy2 = factory.create(operator, deadline, opSig);
+        address proxy2 = factory.create(operator, deadline, opSig2);
 
         // Upgrade beacon
         DelegatedAccountV2 newImpl = new DelegatedAccountV2();

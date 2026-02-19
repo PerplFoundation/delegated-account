@@ -31,13 +31,18 @@ contract DelegatedAccountFactory is EIP712 {
         keccak256("Create(address owner,address operator,uint256 nonce,uint256 deadline)");
 
     /// @notice EIP-712 typehash for operator assignment consent.
-    bytes32 public constant ASSIGN_OPERATOR_TYPEHASH = keccak256("AssignOperator(address owner,uint256 deadline)");
+    bytes32 public constant ASSIGN_OPERATOR_TYPEHASH =
+        keccak256("AssignOperator(address owner,uint256 nonce,uint256 deadline)");
 
     // ============ State ============
     UpgradeableBeacon public immutable beacon;
     address public immutable EXCHANGE;
 
+    /// @notice Per-owner nonce for createWithSignature replay protection
     mapping(address => uint256) public nonces;
+
+    /// @notice Per-operator nonce for AssignOperator signature replay protection
+    mapping(address => uint256) public operatorNonces;
 
     // ============ Constructor ============
     /// @notice Deploys the factory and creates the beacon
@@ -104,9 +109,11 @@ contract DelegatedAccountFactory is EIP712 {
 
     // ============ Internal ============
 
-    function _verifyOperator(address _operator, address _owner, uint256 _deadline, bytes calldata _sig) internal view {
+    function _verifyOperator(address _operator, address _owner, uint256 _deadline, bytes calldata _sig) internal {
         if (block.timestamp > _deadline) revert SignatureExpired();
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(ASSIGN_OPERATOR_TYPEHASH, _owner, _deadline)));
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(ASSIGN_OPERATOR_TYPEHASH, _owner, operatorNonces[_operator]++, _deadline))
+        );
         if (ECDSA.recover(digest, _sig) != _operator) revert InvalidSignature();
     }
 

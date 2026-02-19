@@ -39,8 +39,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
 
     // ============ Constants ============
     /// @notice EIP-712 typehash for operator assignment consent.
-    ///         Operator signs over (owner, deadline) to consent to being assigned.
-    bytes32 public constant ASSIGN_OPERATOR_TYPEHASH = keccak256("AssignOperator(address owner,uint256 deadline)");
+    ///         Operator signs over (owner, nonce, deadline) to consent to being assigned.
+    bytes32 public constant ASSIGN_OPERATOR_TYPEHASH =
+        keccak256("AssignOperator(address owner,uint256 nonce,uint256 deadline)");
 
     // ============ State ============
     mapping(address => bool) public operators;
@@ -51,13 +52,16 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
     // Operator allowlist - only these selectors can be called by operator
     mapping(bytes4 => bool) public operatorAllowlist;
 
+    // Per-operator nonce for AssignOperator signature replay protection
+    mapping(address => uint256) public operatorNonces;
+
     // ============ Function Selectors ============
     bytes4 private constant WITHDRAW_COLLATERAL = IExchange.withdrawCollateral.selector;
     bytes4 private constant CREATE_ACCOUNT = IExchange.createAccount.selector;
 
     // ============ Storage Gap ============
     /// @dev Reserved storage space to allow for layout changes in future upgrades
-    uint256[45] private __gap;
+    uint256[44] private __gap;
 
     // ============ Constructor ============
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -144,14 +148,16 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
     // ============ Owner Management ============
 
     /// @notice Add an operator
-    /// @dev The operator must sign over (owner, deadline) to approve being added.
+    /// @dev The operator must sign over (owner, nonce, deadline) to approve being added.
     /// @param _operator The address to add as operator
     /// @param _deadline Unix timestamp after which the operator signature is invalid
-    /// @param _sig EIP-712 signature from _operator over (owner, deadline)
+    /// @param _sig EIP-712 signature from _operator over (owner, nonce, deadline)
     function addOperator(address _operator, uint256 _deadline, bytes calldata _sig) external onlyOwner {
         if (_operator == address(0)) revert ZeroAddress();
         if (block.timestamp > _deadline) revert SignatureExpired();
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(ASSIGN_OPERATOR_TYPEHASH, owner(), _deadline)));
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(ASSIGN_OPERATOR_TYPEHASH, owner(), operatorNonces[_operator]++, _deadline))
+        );
         if (ECDSA.recover(digest, _sig) != _operator) revert InvalidSignature();
         operators[_operator] = true;
         emit OperatorAdded(_operator);
