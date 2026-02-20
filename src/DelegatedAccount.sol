@@ -33,6 +33,7 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
     // ============ Events ============
     event OperatorAdded(address indexed operator);
     event OperatorRemoved(address indexed operator);
+    event OperatorNonceInvalidated(address indexed operator, uint256 newNonce);
     event AccountCreated(uint256 indexed accountId);
     event OperatorAllowlistUpdated(bytes4 indexed selector, bool allowed);
     event ExchangeApprovalUpdated(uint256 amount);
@@ -175,6 +176,12 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
         if (!operators[msg.sender]) return;
         operators[msg.sender] = false;
         emit OperatorRemoved(msg.sender);
+    }
+
+    /// @notice Invalidates any pending AssignOperator signature from the caller by incrementing their operator nonce
+    function invalidateOperatorNonce() external {
+        operatorNonces[msg.sender]++;
+        emit OperatorNonceInvalidated(msg.sender, operatorNonces[msg.sender]);
     }
 
     /// @notice Check if an address is an operator

@@ -518,6 +518,37 @@ contract OperatorManagement_Test is Base_Test {
         assertFalse(delegatedAccount.isOperator(user));
     }
 
+    function test_InvalidateOperatorNonce_IncrementsNonce() external {
+        assertEq(delegatedAccount.operatorNonces(operator), 0);
+
+        vm.prank(operator);
+        delegatedAccount.invalidateOperatorNonce();
+
+        assertEq(delegatedAccount.operatorNonces(operator), 1);
+    }
+
+    function test_InvalidateOperatorNonce_EmitsEvent() external {
+        vm.expectEmit(true, false, false, true);
+        emit DelegatedAccount.OperatorNonceInvalidated(operator, 1);
+
+        vm.prank(operator);
+        delegatedAccount.invalidateOperatorNonce();
+    }
+
+    function test_InvalidateOperatorNonce_InvalidatesPendingSig() external {
+        (address newOperator, uint256 newOperatorKey) = makeAddrAndKey("newOperator");
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signAddOperator(address(delegatedAccount), owner, deadline, newOperatorKey);
+
+        // newOperator invalidates before the owner uses the sig
+        vm.prank(newOperator);
+        delegatedAccount.invalidateOperatorNonce();
+
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccount.InvalidSignature.selector);
+        delegatedAccount.addOperator(newOperator, deadline, sig);
+    }
+
     function test_MultipleOperators() external {
         (address operator2, uint256 operator2Key) = makeAddrAndKey("operator2");
         (address operator3, uint256 operator3Key) = makeAddrAndKey("operator3");
@@ -1021,6 +1052,65 @@ contract Factory_Test is Test {
         // Replaying the same signature fails (nonce was consumed)
         vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
         factory.createWithSignature(owner, address(0), deadline, ownerSig, 0, "");
+    }
+
+    function test_InvalidateNonce_IncrementsNonce() external {
+        assertEq(factory.nonces(owner), 0);
+
+        vm.prank(owner);
+        factory.invalidateNonce();
+
+        assertEq(factory.nonces(owner), 1);
+    }
+
+    function test_InvalidateNonce_EmitsEvent() external {
+        vm.expectEmit(true, false, false, true);
+        emit DelegatedAccountFactory.NonceInvalidated(owner, 1);
+
+        vm.prank(owner);
+        factory.invalidateNonce();
+    }
+
+    function test_InvalidateNonce_InvalidatesPendingCreateSig() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory ownerSig = _signCreate(owner, address(0), deadline, ownerKey);
+
+        // Owner invalidates before the sig is used
+        vm.prank(owner);
+        factory.invalidateNonce();
+
+        vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
+        factory.createWithSignature(owner, address(0), deadline, ownerSig, 0, "");
+    }
+
+    function test_InvalidateOperatorNonce_IncrementsNonce() external {
+        assertEq(factory.operatorNonces(operator), 0);
+
+        vm.prank(operator);
+        factory.invalidateOperatorNonce();
+
+        assertEq(factory.operatorNonces(operator), 1);
+    }
+
+    function test_InvalidateOperatorNonce_EmitsEvent() external {
+        vm.expectEmit(true, false, false, true);
+        emit DelegatedAccountFactory.OperatorNonceInvalidated(operator, 1);
+
+        vm.prank(operator);
+        factory.invalidateOperatorNonce();
+    }
+
+    function test_InvalidateOperatorNonce_InvalidatesPendingAssignOperatorSig() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory opSig = _signOperatorConsent(owner, deadline, operatorKey);
+
+        // Operator invalidates before the owner uses the sig
+        vm.prank(operator);
+        factory.invalidateOperatorNonce();
+
+        vm.prank(owner);
+        vm.expectRevert(DelegatedAccountFactory.InvalidSignature.selector);
+        factory.create(operator, deadline, opSig);
     }
 
     function test_BeaconUpgrade_AppliesToAllFactoryInstances() external {
