@@ -36,28 +36,57 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 | Contract | Address |
 |----------|---------|
-| Factory | `0x676ad363bb61AACc1480335729F75B21408490b9` |
+| Factory | `TBD` |
 | Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` |
 
 #### Monad Testnet
 
 | Contract | Address |
 |----------|---------|
-| Factory | `0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc` |
+| Factory | `TBD` |
 | Exchange | `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` |
 
 ### 1. Create a DelegatedAccount
 
-Anyone can create a DelegatedAccount via the factory:
+The broadcast signer automatically becomes the owner. The exchange is fixed at factory deployment and does not need to be specified.
+
+**Without an operator** (add one later via [step 3](#3-add-an-operator-optional)):
 
 ```shell
 export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
-export OWNER=0x...            # MM cold wallet
-export OPERATOR=0x...         # Hot wallet
-export EXCHANGE=0x1964C32f0bE608E7D29302AFF5E61268E72080cc
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
-  --rpc-url <RPC_URL> --broadcast --private-key <KEY>
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+```
+
+**With an operator at creation time** (operator must sign off-chain first, see [step 3](#3-add-an-operator-optional)):
+
+```shell
+export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
+export OPERATOR=0x...          # Operator address
+export OP_DEADLINE=<timestamp> # Unix timestamp for sig expiry
+export OP_SIG=0x...            # Operator's EIP-712 AssignOperator signature
+
+forge script script/DelegatedAccount.s.sol:CreateAccountScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+```
+
+**Via third-party** (owner signs off-chain, anyone can submit the transaction):
+
+The owner generates a `Create` signature off-chain:
+
+```shell
+export FACTORY=<factory_address>
+export OPERATOR=<operator_address>  # optional, defaults to address(0)
+export DEADLINE=<unix_timestamp>
+export PRIVATE_KEY=<owner_private_key>
+forge script script/DelegatedAccount.s.sol:SignCreateScript --rpc-url <RPC_URL>
+```
+
+Then a third party submits the transaction:
+
+```shell
+factory.createWithSignature(owner, operator, deadline, ownerSig, opDeadline, opSig)
 ```
 
 ### 2. Set Up the Exchange Account
@@ -73,6 +102,30 @@ forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY> \
   --gas-estimate-multiplier 300
 ```
+
+### 3. Add an Operator (optional)
+
+#### Generate operator signature
+
+The operator must sign an EIP-712 `AssignOperator` message consenting to be assigned to the owner's account. Use the **factory address** as `VERIFYING_CONTRACT` when including an operator at creation time, or the **DelegatedAccount address** when calling `addOperator()` on an existing account (different EIP-712 domain).
+
+```shell
+export VERIFYING_CONTRACT=<factory_or_delegated_account_address>
+export OWNER=<owner_address>
+export DEADLINE=<unix_timestamp>
+export PRIVATE_KEY=<operator_private_key>
+forge script script/DelegatedAccount.s.sol:SignOperatorScript --rpc-url <RPC_URL>
+```
+
+#### Add on-chain
+
+Call `addOperator()` from the owner to add an operator to an existing account:
+
+```shell
+delegatedAccount.addOperator(operator, deadline, operatorSig)
+```
+
+An operator can remove themselves at any time via `resignOperator()` — useful if they were tricked into signing consent.
 
 ## Development
 

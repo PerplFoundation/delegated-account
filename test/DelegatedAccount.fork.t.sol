@@ -8,6 +8,7 @@ import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol"
 import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
+import {SignOperatorScript} from "../script/DelegatedAccount.s.sol";
 
 /// @notice Fork tests against Monad testnet
 /// @dev Run with: forge test --match-contract Fork
@@ -23,10 +24,12 @@ abstract contract Base_Fork_Test is Test {
     DelegatedAccount public implementation;
     UpgradeableBeacon public beacon;
     IERC20 public token;
+    SignOperatorScript public signOperatorScript;
 
     // ============ Addresses ============
     address public owner;
     address public operator;
+    uint256 public operatorKey;
     address public user;
 
     // ============ Constants ============
@@ -42,9 +45,11 @@ abstract contract Base_Fork_Test is Test {
         // Create fork at pinned block number for deterministic tests
         vm.createSelectFork(MONAD_RPC_URL, FORK_BLOCK_NUMBER);
 
+        signOperatorScript = new SignOperatorScript();
+
         // Create addresses
         owner = makeAddr("owner");
-        operator = makeAddr("operator");
+        (operator, operatorKey) = makeAddrAndKey("operator");
         user = makeAddr("user");
 
         // Use real contracts on Monad testnet
@@ -67,6 +72,16 @@ abstract contract Base_Fork_Test is Test {
     }
 
     // ============ Helpers ============
+
+    /// @notice Sign an operator consent for DelegatedAccount.addOperator()
+    function _signAddOperator(address _delegatedAccount, address _owner, uint256 _deadline, uint256 _operatorPrivKey)
+        internal
+        view
+        returns (bytes memory sig)
+    {
+        (sig,) =
+            signOperatorScript.sign(_delegatedAccount, _owner, vm.addr(_operatorPrivKey), _deadline, _operatorPrivKey);
+    }
 
     /// @notice Create an account on the exchange via the DelegatedAccount
     function _createAccount(uint256 amount) internal {
@@ -192,29 +207,32 @@ contract Fork_TransferOwnership_Test is Base_Fork_Test {
 
 contract Fork_OperatorManagement_Test is Base_Fork_Test {
     function test_AddOperator_WhenCallerIsOwner() external {
-        address newOperator = makeAddr("newOperator");
+        (address newOperator, uint256 newOperatorKey) = makeAddrAndKey("newOperator");
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signAddOperator(address(delegatedAccount), owner, deadline, newOperatorKey);
 
         // it should emit OperatorAdded event.
         vm.expectEmit(true, false, false, false);
         emit DelegatedAccount.OperatorAdded(newOperator);
 
         vm.prank(owner);
-        delegatedAccount.addOperator(newOperator);
+        delegatedAccount.addOperator(newOperator, deadline, sig);
 
         // it should add operator.
         assertTrue(delegatedAccount.isOperator(newOperator));
     }
 
     function test_AddOperator_RevertWhen_CallerIsNotOwner() external {
+        uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        delegatedAccount.addOperator(user);
+        delegatedAccount.addOperator(user, deadline, "");
     }
 
     function test_AddOperator_RevertWhen_ZeroAddress() external {
         vm.prank(owner);
         vm.expectRevert(DelegatedAccount.ZeroAddress.selector);
-        delegatedAccount.addOperator(address(0));
+        delegatedAccount.addOperator(address(0), 0, "");
     }
 
     function test_RemoveOperator_WhenCallerIsOwner() external {
@@ -236,13 +254,15 @@ contract Fork_OperatorManagement_Test is Base_Fork_Test {
     }
 
     function test_MultipleOperators() external {
-        address operator2 = makeAddr("operator2");
-        address operator3 = makeAddr("operator3");
+        (address operator2, uint256 operator2Key) = makeAddrAndKey("operator2");
+        (address operator3, uint256 operator3Key) = makeAddrAndKey("operator3");
+        uint256 deadline = block.timestamp + 1 hours;
 
-        // Add multiple operators
         vm.startPrank(owner);
-        delegatedAccount.addOperator(operator2);
-        delegatedAccount.addOperator(operator3);
+        bytes memory sig2 = _signAddOperator(address(delegatedAccount), owner, deadline, operator2Key);
+        delegatedAccount.addOperator(operator2, deadline, sig2);
+        bytes memory sig3 = _signAddOperator(address(delegatedAccount), owner, deadline, operator3Key);
+        delegatedAccount.addOperator(operator3, deadline, sig3);
         vm.stopPrank();
 
         // Verify all operators are set
