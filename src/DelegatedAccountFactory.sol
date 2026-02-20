@@ -24,6 +24,8 @@ contract DelegatedAccountFactory is EIP712 {
 
     // ============ Events ============
     event DelegatedAccountCreated(address indexed proxy, address indexed owner, address indexed operator);
+    event NonceInvalidated(address indexed owner, uint256 newNonce);
+    event OperatorNonceInvalidated(address indexed operator, uint256 newNonce);
 
     // ============ Constants ============
     /// @notice EIP-712 typehash for owner consent to create a DelegatedAccount.
@@ -43,6 +45,20 @@ contract DelegatedAccountFactory is EIP712 {
 
     /// @notice Per-operator nonce for AssignOperator signature replay protection
     mapping(address => uint256) public operatorNonces;
+
+    // ============ Nonce Invalidation ============
+
+    /// @notice Invalidates any pending Create signature from the caller by incrementing their nonce
+    function invalidateNonce() external {
+        nonces[msg.sender]++;
+        emit NonceInvalidated(msg.sender, nonces[msg.sender]);
+    }
+
+    /// @notice Invalidates any pending AssignOperator signature from the caller by incrementing their operator nonce
+    function invalidateOperatorNonce() external {
+        operatorNonces[msg.sender]++;
+        emit OperatorNonceInvalidated(msg.sender, operatorNonces[msg.sender]);
+    }
 
     // ============ View ============
 
