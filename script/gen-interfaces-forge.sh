@@ -19,7 +19,8 @@ fi
 PROJECT_PATH="$(cd "$ROOT_DIR" && cd "$PERPL_PROJECT_PATH" && pwd)"
 
 CONTRACTS_DIR="$PROJECT_PATH/contracts"
-BUILD_OUT_DIR="$PROJECT_PATH/out"
+# Resolve the target project's build output dir from its own foundry.toml (it is not always `out/`)
+BUILD_OUT_DIR="$PROJECT_PATH/$(cd "$PROJECT_PATH" && forge config --json | jq -r '.out')"
 OUT_DIR="$ROOT_DIR/interfaces"
 PRAGMA="^0.8.20"
 

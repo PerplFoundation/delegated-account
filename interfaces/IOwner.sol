@@ -19,11 +19,13 @@ interface IOwner {
     ) external;
     function addressBlocked(address) external view returns (bool);
     function clearInitUnwindContract(uint256 perpId) external;
+    function clearPrepareUnwindContract(uint256 perpId) external;
     function depositToProtocol(uint256 amountCNS) external;
     function forceResetWithdrawRateLimit() external;
     function initUnwindContract(uint256 perpId, uint256 sumPositiveFmvCNS) external;
     function owner() external view returns (address);
     function pendingOwner() external view returns (address);
+    function prepareUnwindContract(uint256 perpId) external;
     function removeContract(uint256 perpId) external;
     function renounceOwnership() external;
     function setAdministrator(address administrator, bool add) external;
@@ -41,19 +43,23 @@ interface IOwner {
     function setFeeParams(uint256 perpId, uint256 insAmtPer100K) external;
     function setFreezeStatus(address account, FreezeStatusEnum status) external;
     function setFundingClampPct(uint256 perpId, uint256 absFundingClampPctPer100K) external;
+    function setFundingSumScalingExp(uint256 perpId, uint256 fundingSumScalingExp) external;
     function setIgnOracle(uint256 perpId, bool ignOracle) external;
     function setInitialMarginFraction(uint256 perpId, uint256 initMarginFracHdths) external;
     function setLastForwardedDescIdAsOwner(uint256 accountId, uint256 newDescId) external;
+    function setLastTriggeredDescIdAsOwner(uint256 accountId, uint256 newDescId) external;
     function setLinkDsVerifier(address verifierProxy) external;
     function setLiquidationBuyer(address liquidationBuyer, bool add) external;
     function setLiquidationParams(uint256 perpId, uint256 insAmtPer100K, uint256 userAmtPer100K) external;
     function setMaintenanceMarginFraction(uint256 perpId, uint256 maintMarginFracHdths) external;
     function setMakerFee(uint256 perpId, uint256 makerFeePer100K) external;
+    function setMarginTol(uint256 perpId, uint256 tolerance, uint256 decimals) external;
     function setMaxOpenInterest(uint256 perpId, uint256 maxOpenInterestLNS) external;
     function setMinAccountOpenAmount(uint256 amountCNS) external;
     function setMinPost(uint256 minPostCNS) external;
     function setMinSettle(uint256 minSettleCNS) external;
     function setMinWithdrawLimit(uint256 limitCNS) external;
+    function setMonitorAdministrator(address monitorAdministrator, bool add) external;
     function setOverCollatDescentThreshold(uint256 perpId, uint256 threshHdths) external;
     function setPermissionedCancelParams(uint256 perpId, uint256 permCancelMinOrders, uint256 permCancelSegment)
         external;
@@ -70,7 +76,9 @@ interface IOwner {
     function setWhitelistingEnabled(bool enabled) external;
     function setWithdrawBypass(address addr, bool enabled) external;
     function transferOwnership(address newOwner) external;
-    function unwindContract(uint256 perpId, uint256 maxPosToUnwind, bool allowWithoutPayment) external;
+    function triggerUnwindContract(uint256 perpId) external;
+    function unwindContractByOwner(uint256 perpId, uint256 maxPosToUnwind, bool allowWithoutPayment) external;
+    function updateMarkPricePNSByOwner(uint256 perpId, uint32 markPricePNS) external;
     function whitelisted(address) external view returns (bool);
     function whitelistingEnabled() external view returns (bool);
     function withdrawFromProtocol(uint256 amountCNS) external;

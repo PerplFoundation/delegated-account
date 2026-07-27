@@ -7,17 +7,24 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IExchange} from "../interfaces/IExchange.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
-import {SignOperatorScript} from "../script/DelegatedAccount.s.sol";
+import {DelegatedAccountFactory} from "../src/DelegatedAccountFactory.sol";
+import {
+    SignOperatorScript,
+    SetupDelegatedAccountScript,
+    SyncOperatorAllowlistScript
+} from "../script/DelegatedAccount.s.sol";
 
 /// @notice Fork tests against Monad testnet
 /// @dev Run with: forge test --match-contract Fork
 abstract contract Base_Fork_Test is Test {
     // ============ Monad Testnet Constants ============
-    string constant MONAD_RPC_URL = "https://monad-testnet.drpc.org";
-    uint256 constant FORK_BLOCK_NUMBER = 7_660_000; // Pinned block for deterministic tests
-    address constant MONAD_EXCHANGE = 0x9C216D1Ab3e0407b3d6F1d5e9EfFe6d01C326ab7;
-    address constant MONAD_COLLATERAL_TOKEN = 0xdF5B718d8FcC173335185a2a1513eE8151e3c027;
+    string constant MONAD_RPC_URL = "https://testnet-rpc.monad.xyz";
+    uint256 constant FORK_BLOCK_NUMBER = 47_660_000; // Pinned block for deterministic tests
+    address constant MONAD_EXCHANGE = 0x1964C32f0bE608E7D29302AFF5E61268E72080cc;
+    address constant MONAD_EXCHANGE_OWNER = 0x9BE11AD8116d636f03aD7ab213ff6827B7Cc56EF;
+    address constant MONAD_COLLATERAL_TOKEN = 0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC; // AUSD, 6 decimals
 
     // ============ Contracts ============
     DelegatedAccount public delegatedAccount;
@@ -33,12 +40,15 @@ abstract contract Base_Fork_Test is Test {
     address public user;
 
     // ============ Constants ============
-    uint256 public constant INITIAL_BALANCE = 1_000_000e18;
-    uint256 public constant DEPOSIT_AMOUNT = 100_000e18;
+    uint256 public constant INITIAL_BALANCE = 1_000_000e6;
+    uint256 public constant DEPOSIT_AMOUNT = 100_000e6;
 
     // ============ Selectors (for error checking) ============
     bytes4 constant WITHDRAW_COLLATERAL = 0x6112fe2e;
     bytes4 constant XFER_ACCT_TO_PROTOCOL = 0x61bd6f44;
+
+    /// @notice BTC-PERP, priceDecimals = 1, lotDecimals = 5
+    uint256 constant BTC_PERP_ID = 0x10;
 
     // ============ Setup ============
     function setUp() public virtual {
@@ -66,12 +76,56 @@ abstract contract Base_Fork_Test is Test {
         delegatedAccount = DelegatedAccount(payable(address(proxy)));
 
         // Deal tokens for testing
-        deal(address(token), owner, INITIAL_BALANCE);
-        deal(address(token), operator, INITIAL_BALANCE);
-        deal(address(token), address(delegatedAccount), INITIAL_BALANCE);
+        _dealCollateral(owner, INITIAL_BALANCE);
+        _dealCollateral(operator, INITIAL_BALANCE);
+        _dealCollateral(address(delegatedAccount), INITIAL_BALANCE);
     }
 
     // ============ Helpers ============
+
+    /// @notice Set a collateral token balance directly in storage
+    /// @dev `deal()` cannot be used: AUSD packs its account data into a single slot as
+    ///      `{uint8 flags; uint248 balance}`, so a raw slot write of `amount` (what StdStorage
+    ///      probes with) does not round-trip through `balanceOf`. The balance slot is located by
+    ///      recording the SLOADs of a `balanceOf` call, then rewritten with the flags byte preserved.
+    function _dealCollateral(address to, uint256 amount) internal {
+        vm.record();
+        token.balanceOf(to);
+        (bytes32[] memory reads,) = vm.accesses(address(token));
+        bytes32 slot = reads[reads.length - 1];
+
+        uint256 current = uint256(vm.load(address(token), slot));
+        vm.store(address(token), slot, bytes32((amount << 8) | (current & 0xff)));
+
+        assertEq(token.balanceOf(to), amount, "_dealCollateral: unexpected token storage layout");
+    }
+
+    /// @notice Build a post-only long on BTC-PERP that rests on the book instead of matching
+    /// @dev Prices are absolute PNS; the book exposes them as ONS (offsets from `basePricePNS`).
+    ///      The bid is placed one dollar under the current best bid so it can never cross the
+    ///      spread — a post-only order that would match is rejected by the exchange.
+    function _btcPostOnlyBid() internal view returns (IExchange.OrderDesc memory) {
+        IExchange.PerpetualInfo memory perp = IExchange(MONAD_EXCHANGE).getPerpetualInfo(BTC_PERP_ID);
+        uint256 bestBidPNS = perp.basePricePNS + perp.maxBidPriceONS;
+
+        return IExchange.OrderDesc({
+            orderDescId: 0,
+            perpId: BTC_PERP_ID,
+            orderType: IExchange.OrderDescEnum.wrap(uint8(OrderDescEnum.OpenLong)),
+            orderId: 0,
+            pricePNS: bestBidPNS - 10, // $1 below best bid (priceDecimals = 1)
+            lotLNS: 10, // 0.0001 BTC (lotDecimals = 5)
+            expiryBlock: block.number + 1000,
+            postOnly: true,
+            fillOrKill: false,
+            immediateOrCancel: false,
+            maxMatches: 0,
+            leverageHdths: 100, // 1x leverage
+            lastExecutionBlock: 0,
+            amountCNS: 0,
+            maxNegPnlCollatBPS: 0
+        });
+    }
 
     /// @notice Sign an operator consent for DelegatedAccount.addOperator()
     function _signAddOperator(address _delegatedAccount, address _owner, uint256 _deadline, uint256 _operatorPrivKey)
@@ -117,8 +171,8 @@ contract Fork_Initialize_Test is Base_Fork_Test {
         assertEq(address(delegatedAccount.collateralToken()), MONAD_COLLATERAL_TOKEN);
 
         // it should initialize operator allowlist with default selectors.
-        assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
-        assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
+        assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
+        assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
     }
 }
@@ -156,7 +210,7 @@ contract Fork_CreateAccount_Test is Base_Fork_Test {
         DelegatedAccount newDelegatedAccount = _deployProxy(newOwner, operator, MONAD_EXCHANGE);
 
         // Give it just 1 wei - not enough for Exchange minimum
-        deal(address(token), address(newDelegatedAccount), 1);
+        _dealCollateral(address(newDelegatedAccount), 1);
 
         // Exchange should revert with InsufficentAmountToOpenAccount and error should bubble up
         vm.prank(newOwner);
@@ -384,7 +438,7 @@ contract Fork_RescueTokens_Test is Base_Fork_Test {
     }
 
     function test_WhenCallerIsOwner() external {
-        uint256 rescueAmount = 50_000e18;
+        uint256 rescueAmount = 50_000e6;
         uint256 ownerBalanceBefore = token.balanceOf(owner);
 
         vm.prank(owner);
@@ -401,8 +455,8 @@ contract Fork_RescueTokens_Test is Base_Fork_Test {
 
 contract Fork_IsOperatorAllowed_Test is Base_Fork_Test {
     function test_WhenSelectorIsAllowlisted() external view {
-        assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
-        assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
+        assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
+        assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
     }
 
@@ -435,7 +489,7 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
     function test_DepositCollateral_Owner() external {
         _createAccount(DEPOSIT_AMOUNT);
 
-        uint256 additionalDeposit = 50_000e18;
+        uint256 additionalDeposit = 50_000e6;
 
         // Get account balance before
         IExchange.AccountInfo memory infoBefore = exchange.getAccountById(delegatedAccount.accountId());
@@ -453,7 +507,7 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
     function test_DepositCollateral_Operator() external {
         _createAccount(DEPOSIT_AMOUNT);
 
-        uint256 additionalDeposit = 50_000e18;
+        uint256 additionalDeposit = 50_000e6;
 
         // Get account balance before
         IExchange.AccountInfo memory infoBefore = exchange.getAccountById(delegatedAccount.accountId());
@@ -495,29 +549,15 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
     }
 
     // ============ execOrder ============
-    // BTC-PERP config: base_price_pns=50000, price_decimals=1, lot_decimals=5
 
     function test_ExecOrder_Owner() external {
         _createAccount(DEPOSIT_AMOUNT);
 
-        // Create a limit bid order on BTC-PERP (perpId 0x10)
-        // Price ~$50,000 (within allowed range), small lot size
-        IExchange.OrderDesc memory orderDesc = IExchange.OrderDesc({
-            orderDescId: 0,
-            perpId: 0x10, // BTC-PERP
-            orderType: IExchange.OrderDescEnum.BID,
-            orderId: 0,
-            pricePNS: 100_000, // Price in PNS format (no e18 decimals)
-            lotLNS: 100, // Small lot in LNS format
-            expiryBlock: block.number + 1000,
-            postOnly: true,
-            fillOrKill: false,
-            immediateOrCancel: false,
-            maxMatches: 0,
-            leverageHdths: 100, // 1x leverage
-            lastExecutionBlock: 0,
-            amountCNS: 0
-        });
+        vm.prank(MONAD_EXCHANGE_OWNER);
+        exchange.setIgnOracle(BTC_PERP_ID, true);
+
+        // Built before the prank: reading the book would otherwise consume it
+        IExchange.OrderDesc memory orderDesc = _btcPostOnlyBid();
 
         // Owner executes order via fallback - should succeed
         vm.prank(owner);
@@ -525,29 +565,17 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
 
         // Verify order was created
         assertGt(sig.orderId, 0);
-        assertEq(sig.perpId, 0x10);
+        assertEq(sig.perpId, BTC_PERP_ID);
     }
 
     function test_ExecOrder_Operator() external {
         _createAccount(DEPOSIT_AMOUNT);
 
-        // Create a limit bid order on BTC-PERP (perpId 0x10)
-        IExchange.OrderDesc memory orderDesc = IExchange.OrderDesc({
-            orderDescId: 0,
-            perpId: 0x10, // BTC-PERP
-            orderType: IExchange.OrderDescEnum.BID,
-            orderId: 0,
-            pricePNS: 100_000, // Price in PNS format (no e18 decimals)
-            lotLNS: 100, // Small lot in LNS format
-            expiryBlock: block.number + 1000,
-            postOnly: true,
-            fillOrKill: false,
-            immediateOrCancel: false,
-            maxMatches: 0,
-            leverageHdths: 100, // 1x leverage
-            lastExecutionBlock: 0,
-            amountCNS: 0
-        });
+        vm.prank(MONAD_EXCHANGE_OWNER);
+        exchange.setIgnOracle(BTC_PERP_ID, true);
+
+        // Built before the prank: reading the book would otherwise consume it
+        IExchange.OrderDesc memory orderDesc = _btcPostOnlyBid();
 
         // Operator executes order via fallback (allowlisted) - should succeed
         vm.prank(operator);
@@ -555,58 +583,176 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
 
         // Verify order was created
         assertGt(sig.orderId, 0);
-        assertEq(sig.perpId, 0x10);
+        assertEq(sig.perpId, BTC_PERP_ID);
     }
 }
 
-/// @notice Minimal interface for Exchange calls in tests
-interface IExchange {
-    enum OrderDescEnum {
-        BID,
-        ASK
+// ============================================================================
+// Fork: Allowlist Repair on Accounts Minted by the Deployed Factory
+// ============================================================================
+
+/// @notice The DelegatedAccountFactory already live on Monad testnet points at a beacon whose
+///         implementation was compiled against the previous Exchange ABI. Accounts it mints are
+///         therefore born with a stale operator allowlist. These tests pin that down and prove
+///         SetupDelegatedAccountScript repairs it in place, so the factory stays usable without a
+///         redeployment.
+/// @dev The script contract is made the account owner because `syncOperatorAllowlist` issues
+///      several owner-only calls; under a real run `vm.startBroadcast()` puts the EOA in that seat.
+contract Fork_DeployedFactoryAllowlist_Test is Base_Fork_Test {
+    address constant MONAD_FACTORY = 0xf42548Ccb3300Bc76c35dc2D347416db2E8d7209;
+
+    SetupDelegatedAccountScript public setupScript;
+    DelegatedAccount public factoryAccount;
+    address public accountOwner;
+
+    function setUp() public override {
+        super.setUp();
+
+        setupScript = new SetupDelegatedAccountScript();
+        accountOwner = address(setupScript);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory opSig = _signAddOperator(MONAD_FACTORY, accountOwner, deadline, operatorKey);
+
+        vm.prank(accountOwner);
+        factoryAccount =
+            DelegatedAccount(payable(DelegatedAccountFactory(MONAD_FACTORY).create(operator, deadline, opSig)));
+
+        _dealCollateral(address(factoryAccount), INITIAL_BALANCE);
     }
 
-    struct OrderDesc {
-        uint256 orderDescId;
-        uint256 perpId;
-        OrderDescEnum orderType;
-        uint256 orderId;
-        uint256 pricePNS;
-        uint256 lotLNS;
-        uint256 expiryBlock;
-        bool postOnly;
-        bool fillOrKill;
-        bool immediateOrCancel;
-        uint256 maxMatches;
-        uint256 leverageHdths;
-        uint256 lastExecutionBlock;
-        uint256 amountCNS;
+    function test_DeployedFactory_MintsStaleAllowlist() external view {
+        // Sanity: the account really came from the deployed factory and knows this exchange
+        assertEq(factoryAccount.exchange(), MONAD_EXCHANGE);
+        assertTrue(factoryAccount.isOperator(operator));
+
+        // Every selector the script would revoke is present...
+        bytes4[] memory stale = setupScript.staleAllowlist();
+        for (uint256 i = 0; i < stale.length; i++) {
+            assertTrue(factoryAccount.operatorAllowlist(stale[i]), "expected stale selector to be set");
+        }
+
+        // ...and the selectors that replaced them are not
+        assertFalse(factoryAccount.operatorAllowlist(IExchange.execOrder.selector));
+        assertFalse(factoryAccount.operatorAllowlist(IExchange.execOrders.selector));
     }
 
-    struct OrderSignature {
-        uint256 perpId;
-        uint256 orderId;
+    function test_SyncOperatorAllowlist_GrantsCurrentAndRevokesStale() external {
+        setupScript.syncOperatorAllowlist(factoryAccount);
+
+        bytes4[] memory current = setupScript.currentAllowlist();
+        for (uint256 i = 0; i < current.length; i++) {
+            assertTrue(factoryAccount.operatorAllowlist(current[i]), "current selector not granted");
+        }
+
+        bytes4[] memory stale = setupScript.staleAllowlist();
+        for (uint256 i = 0; i < stale.length; i++) {
+            assertFalse(factoryAccount.operatorAllowlist(stale[i]), "stale selector not revoked");
+        }
     }
 
-    struct AccountInfo {
-        uint256 accountId;
-        uint256 balanceCNS;
-        uint256 lockedBalanceCNS;
-        uint8 frozen;
-        address accountAddr;
-        PositionBitMap positions;
+    function test_SyncOperatorAllowlist_IsIdempotent() external {
+        setupScript.syncOperatorAllowlist(factoryAccount);
+        setupScript.syncOperatorAllowlist(factoryAccount);
+
+        bytes4[] memory current = setupScript.currentAllowlist();
+        for (uint256 i = 0; i < current.length; i++) {
+            assertTrue(factoryAccount.operatorAllowlist(current[i]));
+        }
     }
 
-    struct PositionBitMap {
-        uint256 bank1;
-        uint256 bank2;
-        uint256 bank3;
-        uint256 bank4;
+    /// @dev The broadcaster must own the account being repaired. Pranking a different caller proves
+    ///      nothing here — `syncOperatorAllowlist` always reaches the account as the script itself —
+    ///      so the case that matters is an account owned by somebody else.
+    function test_SyncOperatorAllowlist_RevertWhen_ScriptIsNotOwner() external {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory opSig = _signAddOperator(MONAD_FACTORY, owner, deadline, operatorKey);
+
+        vm.prank(owner);
+        DelegatedAccount otherAccount =
+            DelegatedAccount(payable(DelegatedAccountFactory(MONAD_FACTORY).create(operator, deadline, opSig)));
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(setupScript)));
+        setupScript.syncOperatorAllowlist(otherAccount);
     }
 
-    function getAccountById(uint256 accountId) external view returns (AccountInfo memory);
-    function depositCollateral(uint256 amountCNS) external;
-    function allowOrderForwarding(bool allow) external;
-    function execOrder(OrderDesc memory orderDesc) external returns (OrderSignature memory);
-    function xferAcctToProtocol(uint256 amountCNS) external;
+    /// @dev SetupDelegatedAccountScript cannot repair an account whose exchange account already
+    ///      exists — its `createAccount` call would revert with AccountAlreadyCreated. The
+    ///      standalone script is the path for those, so it has to work after setup has run.
+    function test_SyncScript_RepairsAlreadySetUpAccount() external {
+        SyncOperatorAllowlistScript syncScript = new SyncOperatorAllowlistScript();
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory opSig = _signAddOperator(MONAD_FACTORY, address(syncScript), deadline, operatorKey);
+
+        vm.prank(address(syncScript));
+        DelegatedAccount liveAccount =
+            DelegatedAccount(payable(DelegatedAccountFactory(MONAD_FACTORY).create(operator, deadline, opSig)));
+
+        _dealCollateral(address(liveAccount), INITIAL_BALANCE);
+        vm.prank(address(syncScript));
+        liveAccount.createAccount(DEPOSIT_AMOUNT);
+        assertGt(liveAccount.accountId(), 0);
+
+        syncScript.syncOperatorAllowlist(liveAccount);
+
+        bytes4[] memory current = syncScript.currentAllowlist();
+        for (uint256 i = 0; i < current.length; i++) {
+            assertTrue(liveAccount.operatorAllowlist(current[i]), "current selector not granted");
+        }
+
+        bytes4[] memory stale = syncScript.staleAllowlist();
+        for (uint256 i = 0; i < stale.length; i++) {
+            assertFalse(liveAccount.operatorAllowlist(stale[i]), "stale selector not revoked");
+        }
+    }
+
+    /// @dev The keeper-side settlement call stays off the allowlist in both directions: the old
+    ///      signature is revoked and the current one is never granted.
+    function test_SyncOperatorAllowlist_DoesNotGrantDecreasePositionCollateral() external {
+        assertTrue(factoryAccount.operatorAllowlist(0x4a1feb12), "expected legacy selector to be set");
+
+        setupScript.syncOperatorAllowlist(factoryAccount);
+
+        assertFalse(factoryAccount.operatorAllowlist(0x4a1feb12));
+        assertFalse(factoryAccount.operatorAllowlist(IExchange.decreasePositionCollateral.selector));
+    }
+
+    /// @dev The end-to-end point of the repair: an operator on a factory-minted account can trade.
+    function test_SyncOperatorAllowlist_UnblocksOperatorExecOrder() external {
+        vm.prank(accountOwner);
+        factoryAccount.createAccount(DEPOSIT_AMOUNT);
+
+        vm.prank(MONAD_EXCHANGE_OWNER);
+        IExchange(MONAD_EXCHANGE).setIgnOracle(BTC_PERP_ID, true);
+
+        IExchange.OrderDesc memory orderDesc = _btcPostOnlyBid();
+
+        // Before the repair the operator is turned away by the stale allowlist
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(DelegatedAccount.SelectorNotAllowed.selector, IExchange.execOrder.selector)
+        );
+        IExchange(address(factoryAccount)).execOrder(orderDesc);
+
+        setupScript.syncOperatorAllowlist(factoryAccount);
+
+        vm.prank(operator);
+        IExchange.OrderSignature memory sig = IExchange(address(factoryAccount)).execOrder(orderDesc);
+
+        assertGt(sig.orderId, 0);
+        assertEq(sig.perpId, BTC_PERP_ID);
+    }
+}
+
+/// @notice Mirrors `OrderDescEnum` from the exchange sources; the generated interface flattens it
+///         to a `uint8` user-defined value type, which loses the variant names.
+enum OrderDescEnum {
+    OpenLong,
+    OpenShort,
+    CloseLong,
+    CloseShort,
+    Cancel,
+    IncreasePositionCollateral,
+    Change
 }

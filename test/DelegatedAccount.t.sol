@@ -10,7 +10,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
 import {DelegatedAccountFactory} from "../src/DelegatedAccountFactory.sol";
-import {SignOperatorScript, SignCreateScript} from "../script/DelegatedAccount.s.sol";
+import {SignOperatorScript, SignCreateScript, SetupDelegatedAccountScript} from "../script/DelegatedAccount.s.sol";
 
 /// @notice Mock Exchange that simulates the Perpl Exchange
 contract MockExchange {
@@ -66,7 +66,7 @@ contract MockExchange {
         }
     }
 
-    // execOrder(...) - 0x6b69ebbe (allowlisted for operator)
+    // execOrder(...) - 0x4d8dc985 (allowlisted for operator)
     function execOrder(bytes calldata) external view returns (bool) {
         if (shouldFail) {
             _revertWithReason();
@@ -110,7 +110,7 @@ abstract contract Base_Test is Test {
     bytes4 constant CREATE_ACCOUNT = 0xcab13915;
     bytes4 constant WITHDRAW_COLLATERAL = 0x6112fe2e;
     bytes4 constant DEPOSIT_COLLATERAL = 0xbad4a01f;
-    bytes4 constant EXEC_ORDER = 0x6b69ebbe;
+    bytes4 constant EXEC_ORDER = 0x4d8dc985;
     bytes4 constant XFER_ACCT_TO_PROTOCOL = 0x61bd6f44;
 
     function setUp() public virtual {
@@ -232,12 +232,13 @@ contract Initialize_Test is Base_Test {
         assertEq(token.allowance(address(delegatedAccount), exchangeAddr), type(uint256).max);
 
         // it should initialize operator allowlist with default selectors.
-        assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
-        assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
+        assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
+        assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x1eebd35e)); // buyLiquidations
+        assertTrue(delegatedAccount.operatorAllowlist(0x171a5b81)); // requestDecreasePositionCollateral
+        // decreasePositionCollateral is the keeper-side settlement call and is deliberately excluded
+        assertFalse(delegatedAccount.operatorAllowlist(0x5495086a));
+        assertTrue(delegatedAccount.operatorAllowlist(0xbbac6c95)); // buyLiquidations
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x7962f910)); // allowOrderForwarding
     }
@@ -611,7 +612,7 @@ contract SetOperatorAllowlist_Test is Base_Test {
 
     function test_WhenRemovingSelector() external whenCallerIsOwner {
         // First verify a default selector is allowed
-        bytes4 selector = 0x6b69ebbe; // execOrder
+        bytes4 selector = 0x4d8dc985; // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(selector));
 
         // it should emit OperatorAllowlistUpdated event.
@@ -746,12 +747,13 @@ contract RescueTokens_Test is Base_Test {
 contract IsOperatorAllowed_Test is Base_Test {
     function test_WhenSelectorIsInDefaultAllowlist() external view {
         // Default allowlisted selectors should return true
-        assertTrue(delegatedAccount.operatorAllowlist(0x6b69ebbe)); // execOrder
-        assertTrue(delegatedAccount.operatorAllowlist(0xaf3176da)); // execOrders
+        assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
+        assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xf769f0d3)); // increasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x9c64b2b5)); // requestDecreasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x4a1feb12)); // decreasePositionCollateral
-        assertTrue(delegatedAccount.operatorAllowlist(0x1eebd35e)); // buyLiquidations
+        assertTrue(delegatedAccount.operatorAllowlist(0x171a5b81)); // requestDecreasePositionCollateral
+        // decreasePositionCollateral is the keeper-side settlement call and is deliberately excluded
+        assertFalse(delegatedAccount.operatorAllowlist(0x5495086a));
+        assertTrue(delegatedAccount.operatorAllowlist(0xbbac6c95)); // buyLiquidations
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
         assertTrue(delegatedAccount.operatorAllowlist(0x7962f910)); // allowOrderForwarding
     }
@@ -761,6 +763,23 @@ contract IsOperatorAllowed_Test is Base_Test {
         assertFalse(delegatedAccount.operatorAllowlist(WITHDRAW_COLLATERAL));
         assertFalse(delegatedAccount.operatorAllowlist(XFER_ACCT_TO_PROTOCOL));
         assertFalse(delegatedAccount.operatorAllowlist(0x12345678));
+    }
+
+    /// @dev SetupDelegatedAccountScript repairs allowlists written by older implementations, so its
+    ///      notion of the desired allowlist has to stay identical to what initialize() writes today.
+    function test_CurrentAllowlist_MatchesInitializer() external {
+        SetupDelegatedAccountScript setupScript = new SetupDelegatedAccountScript();
+
+        bytes4[] memory current = setupScript.currentAllowlist();
+        for (uint256 i = 0; i < current.length; i++) {
+            assertTrue(delegatedAccount.operatorAllowlist(current[i]), "initializer is missing a current selector");
+        }
+
+        // A freshly initialized account must never carry a selector the script would revoke
+        bytes4[] memory stale = setupScript.staleAllowlist();
+        for (uint256 i = 0; i < stale.length; i++) {
+            assertFalse(delegatedAccount.operatorAllowlist(stale[i]), "initializer wrote a stale selector");
+        }
     }
 }
 

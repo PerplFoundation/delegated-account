@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 interface IInformation {
     type FreezeStatusEnum is uint8;
     type OrderEnum is uint8;
+    type PerpStatusEnum is uint8;
     type PositionEnum is uint8;
 
     struct AccountInfo {
@@ -13,13 +14,6 @@ interface IInformation {
         FreezeStatusEnum frozen;
         address accountAddr;
         PositionBitMap positions;
-    }
-
-    struct DecreaseCollateralParams {
-        uint32 expiryTS;
-        uint32 impactAdjPricePNS;
-        uint16 borrowMarginFracHdths;
-        PositionEnum positionType;
     }
 
     struct LiquidationInfo {
@@ -45,6 +39,7 @@ interface IInformation {
         uint16 orderId;
         uint16 prevOrderId;
         uint16 nextOrderId;
+        uint16 maxNegPnlCollatBPS;
     }
 
     struct OrderLock {
@@ -63,6 +58,8 @@ interface IInformation {
         uint256 lotDecimals;
         bytes32 linkFeedId;
         uint256 priceTolPer100K;
+        uint256 marginTol;
+        uint256 marginTolDecimals;
         uint256 refPriceMaxAgeSec;
         uint256 positionBalanceCNS;
         uint256 insuranceBalanceCNS;
@@ -77,7 +74,7 @@ interface IInformation {
         uint256 fundingStartBlock;
         int16 fundingRatePct100k;
         uint256 absFundingClampPctPer100K;
-        bool paused;
+        PerpStatusEnum status;
         uint256 basePricePNS;
         uint256 maxBidPriceONS;
         uint256 minBidPriceONS;
@@ -85,6 +82,40 @@ interface IInformation {
         uint256 minAskPriceONS;
         uint256 numOrders;
         bool ignOracle;
+    }
+
+    struct PerpetualInfoV2 {
+        string name;
+        string symbol;
+        uint256 priceDecimals;
+        uint256 lotDecimals;
+        bytes32 linkFeedId;
+        uint256 priceTolPer100K;
+        uint256 marginTol;
+        uint256 marginTolDecimals;
+        uint256 refPriceMaxAgeSec;
+        uint256 positionBalanceCNS;
+        uint256 insuranceBalanceCNS;
+        uint256 markPNS;
+        uint256 markTimestamp;
+        uint256 lastPNS;
+        uint256 lastTimestamp;
+        uint256 oraclePNS;
+        uint256 oracleTimestampSec;
+        uint256 longOpenInterestLNS;
+        uint256 shortOpenInterestLNS;
+        uint256 fundingStartBlock;
+        int16 fundingRatePct100k;
+        uint256 absFundingClampPctPer100K;
+        PerpStatusEnum status;
+        uint256 basePricePNS;
+        uint256 maxBidPriceONS;
+        uint256 minBidPriceONS;
+        uint256 maxAskPriceONS;
+        uint256 minAskPriceONS;
+        uint256 numOrders;
+        bool ignOracle;
+        uint256 fundingSumScalingExp;
     }
 
     struct PositionBitMap {
@@ -108,14 +139,25 @@ interface IInformation {
         int256 premiumPnlCNS;
     }
 
+    struct PositionInfoV2 {
+        uint256 accountId;
+        uint256 nextNodeId;
+        uint256 prevNodeId;
+        PositionEnum positionType;
+        uint256 depositCNS;
+        uint256 pricePNS;
+        uint256 lotLNS;
+        uint256 entryBlock;
+        int256 pnlCNS;
+        int256 deltaPnlCNS;
+        int256 premiumPnlCNS;
+        uint256 priceResiduePNSQ16;
+    }
+
     function acceptOwnership() external;
     function addressBlocked(address) external view returns (bool);
     function getAccountByAddr(address accountAddress) external view returns (AccountInfo memory accountInfo);
     function getAccountById(uint256 accountId) external view returns (AccountInfo memory accountInfo);
-    function getDecreaseCollateralParams(uint256 accountId, uint256 perpId)
-        external
-        view
-        returns (DecreaseCollateralParams memory dcp);
     function getExchangeInfo()
         external
         view
@@ -148,6 +190,7 @@ interface IInformation {
     function getMinAccountOpenCNS() external view returns (uint256 minAccountOpenCNS);
     function getMinimumPostCNS() external view returns (uint256 minimumPostCNS);
     function getMinimumSettleCNS() external view returns (uint256 minimumSettleCNS);
+    function getNextPriceAboveWithOrders(uint256 perpId, uint256 priceONS) external view returns (uint256 priceAboveONS);
     function getNextPriceBelowWithOrders(uint256 perpId, uint256 priceONS) external view returns (uint256 priceBelowONS);
     function getOrder(uint256 perpId, uint256 orderId) external view returns (Order memory order);
     function getOrderIdIndex(uint256 perpId)
@@ -169,15 +212,24 @@ interface IInformation {
         view
         returns (OrderLock[] memory perpOrderLocks);
     function getPerpetualInfo(uint256 perpId) external view returns (PerpetualInfo memory perpetualInfo);
+    function getPerpetualInfoV2(uint256 perpId) external view returns (PerpetualInfoV2 memory perpetualInfo);
     function getPosition(uint256 perpId, uint256 accountId)
         external
         view
         returns (PositionInfo memory positionInfo, uint256 markPricePNS, bool markPriceValid);
     function getPositionIds(uint256 perpId) external view returns (uint256 startNodeId, uint256 endNodeId);
+    function getPositionV2(uint256 perpId, uint256 accountId)
+        external
+        view
+        returns (PositionInfoV2 memory positionInfo, uint256 markPricePNS, bool markPriceValid);
     function getPositions(uint256 perpId, uint256 pageStartPositionId, uint256 positionsPerPage)
         external
         view
         returns (PositionInfo[] memory positions, uint256 numPositions, uint256 markPricePNS, bool markPriceValid);
+    function getPositionsV2(uint256 perpId, uint256 pageStartPositionId, uint256 positionsPerPage)
+        external
+        view
+        returns (PositionInfoV2[] memory positions, uint256 numPositions, uint256 markPricePNS, bool markPriceValid);
     function getPriceLevelOrderIds(uint256 perpId, uint256 priceONS)
         external
         view
@@ -189,12 +241,7 @@ interface IInformation {
     function getUnwindInfo(uint256 perpId)
         external
         view
-        returns (
-            bool unwindInitialized,
-            bool unwindStarted,
-            uint256 unwindSumPositiveFmvCNS,
-            uint256 unwindInitPosBalCNS
-        );
+        returns (PerpStatusEnum status, uint256 unwindSumPositiveFmvCNS, uint256 unwindInitPosBalCNS);
     function getVolumeAtBookPrice(uint256 perpId, uint256 priceONS)
         external
         view
