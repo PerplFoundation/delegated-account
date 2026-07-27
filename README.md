@@ -36,14 +36,14 @@ All scripts use `vm.startBroadcast()` — pass the signer via CLI flag:
 
 | Contract | Address |
 |----------|---------|
-| Factory | `TBD` |
+| Factory | `0xc535276e3e446e4f28d95ed27ccd5c32e4c8907a` |
 | Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` |
 
 #### Monad Testnet
 
 | Contract | Address |
 |----------|---------|
-| Factory | `TBD` |
+| Factory | `0xf42548Ccb3300Bc76c35dc2D347416db2E8d7209` |
 | Exchange | `0x1964C32f0bE608E7D29302AFF5E61268E72080cc` |
 
 ### 1. Create a DelegatedAccount
@@ -53,7 +53,7 @@ The broadcast signer automatically becomes the owner. The exchange is fixed at f
 **Without an operator** (add one later via [step 3](#3-add-an-operator-optional)):
 
 ```shell
-export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
+export FACTORY=0xc535276e3e446e4f28d95ed27ccd5c32e4c8907a
 
 forge script script/DelegatedAccount.s.sol:CreateAccountScript \
   --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
@@ -62,7 +62,7 @@ forge script script/DelegatedAccount.s.sol:CreateAccountScript \
 **With an operator at creation time** (operator must sign off-chain first, see [step 3](#3-add-an-operator-optional)):
 
 ```shell
-export FACTORY=0x0E9B6c0B46C51D12A6E7062634fba358E9A7AdBc
+export FACTORY=0xc535276e3e446e4f28d95ed27ccd5c32e4c8907a
 export OPERATOR=0x...          # Operator address
 export OP_DEADLINE=<timestamp> # Unix timestamp for sig expiry
 export OP_SIG=0x...            # Operator's EIP-712 AssignOperator signature
@@ -76,7 +76,7 @@ forge script script/DelegatedAccount.s.sol:CreateAccountScript \
 The owner generates a `Create` signature off-chain:
 
 ```shell
-export FACTORY=<factory_address>
+export FACTORY=0xc535276e3e446e4f28d95ed27ccd5c32e4c8907a
 export OPERATOR=<operator_address>  # optional, defaults to address(0)
 export DEADLINE=<unix_timestamp>
 export PRIVATE_KEY=<owner_private_key>
@@ -91,11 +91,13 @@ factory.createWithSignature(owner, operator, deadline, ownerSig, opDeadline, opS
 
 ### 2. Set Up the Exchange Account
 
-Must be run by the DelegatedAccount **owner**. Sets exchange approval, creates an exchange account with an initial deposit, and optionally enables order forwarding. If the DelegatedAccount doesn't hold enough collateral tokens, the script transfers the deficit from the owner.
+Must be run by the DelegatedAccount **owner**. Reconciles the operator allowlist against the current Exchange ABI, creates an exchange account with an initial deposit, and optionally enables order forwarding. If the DelegatedAccount doesn't hold enough collateral tokens, the script transfers the deficit from the owner.
+
+The allowlist step exists because an account's operator allowlist is written once, by `initialize()`, from the selectors its **implementation** was compiled against. A factory whose beacon implementation predates an Exchange ABI change keeps minting accounts whose operators are allowed to call selectors that no longer exist and are blocked from the ones that replaced them. The script grants the current selectors and revokes the superseded ones, so an existing factory stays usable without redeploying. It is idempotent, and a no-op once the implementation is redeployed.
 
 ```shell
 export DELEGATED_ACCOUNT=0x...  # From step 1 output
-export DEPOSIT_AMOUNT=100000000 # Raw token units (min $100 = 100_000_000)
+export DEPOSIT_AMOUNT=100000000 # Raw token units (min $10 = 10_000_000)
 # export ENABLE_FORWARDING=true # Optional, defaults to false
 
 forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript \
@@ -127,6 +129,17 @@ delegatedAccount.addOperator(operator, deadline, operatorSig)
 
 An operator can remove themselves at any time via `resignOperator()` — useful if they were tricked into signing consent.
 
+#### Repairing an account that is already set up
+
+`SetupDelegatedAccountScript` can only run once per account — `createAccount` reverts with `AccountAlreadyCreated` afterwards. To reconcile the allowlist on an account that has already been set up, run the standalone script:
+
+```shell
+export DELEGATED_ACCOUNT=0x...
+
+forge script script/DelegatedAccount.s.sol:SyncOperatorAllowlistScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+```
+
 ## Development
 
 ### Build
@@ -144,12 +157,12 @@ forge test --no-match-contract Fork
 
 Fork tests against Monad testnet (uses real exchange contract):
 ```shell
-forge test --fork-url https://monad-testnet.drpc.org --match-contract Fork
+forge test --fork-url https://testnet-rpc.monad.xyz --match-contract Fork
 ```
 
 All tests:
 ```shell
-forge test --fork-url https://monad-testnet.drpc.org
+forge test --fork-url https://testnet-rpc.monad.xyz
 ```
 
 ### Test Structure
@@ -172,7 +185,7 @@ DelegatedAccountFactory
 
 The operator can call these Exchange functions by default:
 - `execOrder`, `execOrders` - trading
-- `increasePositionCollateral`, `requestDecreasePositionCollateral`, `decreasePositionCollateral` - position management
+- `increasePositionCollateral`, `requestDecreasePositionCollateral` - position management
 - `buyLiquidations` - liquidation buying
 - `depositCollateral` - deposits (via fallback)
 - `allowOrderForwarding` - order forwarding permission (TODO: should we keep this one?)

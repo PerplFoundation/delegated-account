@@ -4,11 +4,17 @@ pragma solidity ^0.8.20;
 interface IAdmin {
     type FreezeStatusEnum is uint8;
     type OrderDescEnum is uint8;
+    type TriggerPriceConditionEnum is uint8;
 
     struct FwdOrderDesc {
         uint256 accountId;
         uint256 feePer100K;
         OrderDesc orderDesc;
+        bool execTriggerOrder;
+        uint256 triggerPricePNS;
+        TriggerPriceConditionEnum triggerPriceCondition;
+        uint256 triggerRequestId;
+        uint256 triggerPositionId;
     }
 
     struct OrderDesc {
@@ -26,6 +32,7 @@ interface IAdmin {
         uint256 leverageHdths;
         uint256 lastExecutionBlock;
         uint256 amountCNS;
+        uint256 maxNegPnlCollatBPS;
     }
 
     struct OrderSignature {
@@ -49,6 +56,7 @@ interface IAdmin {
     function setAddressWhitelisted(address[] memory addresses, bool whitelisted_) external;
     function setFrozen(address account, FreezeStatusEnum status) external;
     function setLastForwardedDescId(uint256 accountId, uint256 newDescId) external;
+    function setLastTriggeredDescId(uint256 accountId, uint256 newDescId) external;
     function transferOwnership(address newOwner) external;
     function whitelisted(address) external view returns (bool);
     function whitelistingEnabled() external view returns (bool);

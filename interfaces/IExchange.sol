@@ -1,12 +1,26 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
+library Exchange {
+    struct PerpScalingConfig {
+        uint256 perpId;
+        uint256 fundingSumScalingExp;
+    }
+
+    struct ResidueTransfer {
+        uint256 perpId;
+        uint256 residueAmountCNS;
+    }
+}
+
 interface IExchange {
     type FreezeStatusEnum is uint8;
     type OpDescEnum is uint8;
     type OrderDescEnum is uint8;
     type OrderEnum is uint8;
+    type PerpStatusEnum is uint8;
     type PositionEnum is uint8;
+    type TriggerPriceConditionEnum is uint8;
 
     struct AccountInfo {
         uint256 accountId;
@@ -29,19 +43,18 @@ interface IExchange {
         uint256 lotLNS;
         uint256 leverageHdths;
         uint256 limitPricePNS;
-    }
-
-    struct DecreaseCollateralParams {
-        uint32 expiryTS;
-        uint32 impactAdjPricePNS;
-        uint16 borrowMarginFracHdths;
-        PositionEnum positionType;
+        uint256 maxNegPnlCollatBPS;
     }
 
     struct FwdOrderDesc {
         uint256 accountId;
         uint256 feePer100K;
         OrderDesc orderDesc;
+        bool execTriggerOrder;
+        uint256 triggerPricePNS;
+        TriggerPriceConditionEnum triggerPriceCondition;
+        uint256 triggerRequestId;
+        uint256 triggerPositionId;
     }
 
     struct FznOrderDesc {
@@ -89,6 +102,7 @@ interface IExchange {
         uint16 orderId;
         uint16 prevOrderId;
         uint16 nextOrderId;
+        uint16 maxNegPnlCollatBPS;
     }
 
     struct OrderDesc {
@@ -106,6 +120,7 @@ interface IExchange {
         uint256 leverageHdths;
         uint256 lastExecutionBlock;
         uint256 amountCNS;
+        uint256 maxNegPnlCollatBPS;
     }
 
     struct OrderLock {
@@ -129,6 +144,8 @@ interface IExchange {
         uint256 lotDecimals;
         bytes32 linkFeedId;
         uint256 priceTolPer100K;
+        uint256 marginTol;
+        uint256 marginTolDecimals;
         uint256 refPriceMaxAgeSec;
         uint256 positionBalanceCNS;
         uint256 insuranceBalanceCNS;
@@ -143,7 +160,7 @@ interface IExchange {
         uint256 fundingStartBlock;
         int16 fundingRatePct100k;
         uint256 absFundingClampPctPer100K;
-        bool paused;
+        PerpStatusEnum status;
         uint256 basePricePNS;
         uint256 maxBidPriceONS;
         uint256 minBidPriceONS;
@@ -151,6 +168,40 @@ interface IExchange {
         uint256 minAskPriceONS;
         uint256 numOrders;
         bool ignOracle;
+    }
+
+    struct PerpetualInfoV2 {
+        string name;
+        string symbol;
+        uint256 priceDecimals;
+        uint256 lotDecimals;
+        bytes32 linkFeedId;
+        uint256 priceTolPer100K;
+        uint256 marginTol;
+        uint256 marginTolDecimals;
+        uint256 refPriceMaxAgeSec;
+        uint256 positionBalanceCNS;
+        uint256 insuranceBalanceCNS;
+        uint256 markPNS;
+        uint256 markTimestamp;
+        uint256 lastPNS;
+        uint256 lastTimestamp;
+        uint256 oraclePNS;
+        uint256 oracleTimestampSec;
+        uint256 longOpenInterestLNS;
+        uint256 shortOpenInterestLNS;
+        uint256 fundingStartBlock;
+        int16 fundingRatePct100k;
+        uint256 absFundingClampPctPer100K;
+        PerpStatusEnum status;
+        uint256 basePricePNS;
+        uint256 maxBidPriceONS;
+        uint256 minBidPriceONS;
+        uint256 maxAskPriceONS;
+        uint256 minAskPriceONS;
+        uint256 numOrders;
+        bool ignOracle;
+        uint256 fundingSumScalingExp;
     }
 
     struct PositionBitMap {
@@ -174,6 +225,21 @@ interface IExchange {
         int256 premiumPnlCNS;
     }
 
+    struct PositionInfoV2 {
+        uint256 accountId;
+        uint256 nextNodeId;
+        uint256 prevNodeId;
+        PositionEnum positionType;
+        uint256 depositCNS;
+        uint256 pricePNS;
+        uint256 lotLNS;
+        uint256 entryBlock;
+        int256 pnlCNS;
+        int256 deltaPnlCNS;
+        int256 premiumPnlCNS;
+        uint256 priceResiduePNSQ16;
+    }
+
     function acceptOwnership() external;
     function addContract(
         string memory name,
@@ -192,13 +258,20 @@ interface IExchange {
     function allowOrderForwarding(bool allow) external;
     function autoDeleverage(AdlDesc[] memory adlDescs, bool revertOnFail) external;
     function buyLiquidations(BuyToLiquidateDesc[] memory liquidationDescs, bool revertOnFail) external;
-    function clearDecreaseCollatParams(uint256 perpId, uint256 accountId) external;
+    function cancelDecreaseCollateralRequest(uint256 perpId) external;
     function clearInitUnwindContract(uint256 perpId) external;
     function clearOrderSlots(uint256 perpId, uint256[] memory orderIds) external;
+    function clearPrepareUnwindContract(uint256 perpId) external;
     function clearPricePointerSlots(uint256 perpId, uint256[] memory pricesONS) external;
     function createAccount(uint256 amountCNS) external returns (uint256 accountId);
-    function declineDecreaseCollateral(uint256 perpId, uint256 accountId) external;
-    function decreasePositionCollateral(uint256 perpId, uint256 amountCNS, bool clampToMaximum) external;
+    function declineDecreaseCollateralRequest(uint256 perpId, uint256 accountId, string memory reason) external;
+    function decreasePositionCollateral(
+        uint256 perpId,
+        uint256 accountId,
+        uint32 impactAdjPricePNS,
+        uint16 borrowMarginFracHdths,
+        PositionEnum positionType
+    ) external;
     function depositCollateral(uint256 amountCNS) external;
     function depositToProtocol(uint256 amountCNS) external;
     function execFwdPositionOps(FwdOrderDesc[] memory forwardedOrders)
@@ -216,10 +289,6 @@ interface IExchange {
     function forceResetWithdrawRateLimit() external;
     function getAccountByAddr(address accountAddress) external view returns (AccountInfo memory accountInfo);
     function getAccountById(uint256 accountId) external view returns (AccountInfo memory accountInfo);
-    function getDecreaseCollateralParams(uint256 accountId, uint256 perpId)
-        external
-        view
-        returns (DecreaseCollateralParams memory dcp);
     function getExchangeInfo()
         external
         view
@@ -252,6 +321,7 @@ interface IExchange {
     function getMinAccountOpenCNS() external view returns (uint256 minAccountOpenCNS);
     function getMinimumPostCNS() external view returns (uint256 minimumPostCNS);
     function getMinimumSettleCNS() external view returns (uint256 minimumSettleCNS);
+    function getNextPriceAboveWithOrders(uint256 perpId, uint256 priceONS) external view returns (uint256 priceAboveONS);
     function getNextPriceBelowWithOrders(uint256 perpId, uint256 priceONS) external view returns (uint256 priceBelowONS);
     function getOrder(uint256 perpId, uint256 orderId) external view returns (Order memory order);
     function getOrderIdIndex(uint256 perpId)
@@ -273,15 +343,24 @@ interface IExchange {
         view
         returns (OrderLock[] memory perpOrderLocks);
     function getPerpetualInfo(uint256 perpId) external view returns (PerpetualInfo memory perpetualInfo);
+    function getPerpetualInfoV2(uint256 perpId) external view returns (PerpetualInfoV2 memory perpetualInfo);
     function getPosition(uint256 perpId, uint256 accountId)
         external
         view
         returns (PositionInfo memory positionInfo, uint256 markPricePNS, bool markPriceValid);
     function getPositionIds(uint256 perpId) external view returns (uint256 startNodeId, uint256 endNodeId);
+    function getPositionV2(uint256 perpId, uint256 accountId)
+        external
+        view
+        returns (PositionInfoV2 memory positionInfo, uint256 markPricePNS, bool markPriceValid);
     function getPositions(uint256 perpId, uint256 pageStartPositionId, uint256 positionsPerPage)
         external
         view
         returns (PositionInfo[] memory positions, uint256 numPositions, uint256 markPricePNS, bool markPriceValid);
+    function getPositionsV2(uint256 perpId, uint256 pageStartPositionId, uint256 positionsPerPage)
+        external
+        view
+        returns (PositionInfoV2[] memory positions, uint256 numPositions, uint256 markPricePNS, bool markPriceValid);
     function getPriceLevelOrderIds(uint256 perpId, uint256 priceONS)
         external
         view
@@ -293,12 +372,7 @@ interface IExchange {
     function getUnwindInfo(uint256 perpId)
         external
         view
-        returns (
-            bool unwindInitialized,
-            bool unwindStarted,
-            uint256 unwindSumPositiveFmvCNS,
-            uint256 unwindInitPosBalCNS
-        );
+        returns (PerpStatusEnum status, uint256 unwindSumPositiveFmvCNS, uint256 unwindInitPosBalCNS);
     function getVolumeAtBookPrice(uint256 perpId, uint256 priceONS)
         external
         view
@@ -310,6 +384,10 @@ interface IExchange {
     function increasePositionCollateral(uint256 perpId, uint256 amountCNS) external;
     function initUnwindContract(uint256 perpId, uint256 sumPositiveFmvCNS) external;
     function initialize(address collateralToken) external;
+    function initializeV2(
+        Exchange.PerpScalingConfig[] memory configs,
+        Exchange.ResidueTransfer[] memory residueTransfers
+    ) external;
     function isAdministrator(address anAddress) external view returns (bool);
     function isHalted() external view returns (bool halted);
     function isLiquidationBuyer(address anAddress) external view returns (bool);
@@ -321,11 +399,13 @@ interface IExchange {
     function numberOfAccounts() external view returns (uint256 numAccounts);
     function owner() external view returns (address);
     function pauseContract(uint256 perpId) external;
+    function pauseContractByMonitor(uint256 perpId) external;
     function pendingOwner() external view returns (address);
+    function prepareUnwindContract(uint256 perpId) external;
     function proxiableUUID() external view returns (bytes32);
     function removeContract(uint256 perpId) external;
     function renounceOwnership() external;
-    function requestDecreasePositionCollateral(uint256 perpId) external;
+    function requestDecreasePositionCollateral(uint256 perpId, uint256 amountCNS, bool clampToMaximum) external;
     function setAddressBlockStatus(address[] memory addresses, bool blocked) external;
     function setAddressWhitelisted(address[] memory addresses, bool whitelisted_) external;
     function setAdministrator(address administrator, bool add) external;
@@ -339,14 +419,6 @@ interface IExchange {
     function setBuyToLiquidatePriceThreshold(uint256 perpId, uint256 thresholdPer100K) external;
     function setContractPaused(uint256 perpId, bool paused) external;
     function setDcpBorrowThreshold(uint256 perpId, uint256 threshHdths) external;
-    function setDecreaseCollatParams(
-        uint256 perpId,
-        uint256 accountId,
-        uint32 expiryTS,
-        uint32 impactAdjPricePNS,
-        uint16 borrowMarginFracHdths,
-        PositionEnum positionType
-    ) external;
     function setExchangeHalted(bool halted) external;
     function setFeeParams(uint256 perpId, uint256 insAmtPer100K) external;
     function setFreezeStatus(address account, FreezeStatusEnum status) external;
@@ -359,20 +431,25 @@ interface IExchange {
         bool allowOverwrite,
         bool revertOnFail
     ) external;
+    function setFundingSumScalingExp(uint256 perpId, uint256 fundingSumScalingExp) external;
     function setIgnOracle(uint256 perpId, bool ignOracle) external;
     function setInitialMarginFraction(uint256 perpId, uint256 initMarginFracHdths) external;
     function setLastForwardedDescId(uint256 accountId, uint256 newDescId) external;
     function setLastForwardedDescIdAsOwner(uint256 accountId, uint256 newDescId) external;
+    function setLastTriggeredDescId(uint256 accountId, uint256 newDescId) external;
+    function setLastTriggeredDescIdAsOwner(uint256 accountId, uint256 newDescId) external;
     function setLinkDsVerifier(address verifierProxy) external;
     function setLiquidationBuyer(address liquidationBuyer, bool add) external;
     function setLiquidationParams(uint256 perpId, uint256 insAmtPer100K, uint256 userAmtPer100K) external;
     function setMaintenanceMarginFraction(uint256 perpId, uint256 maintMarginFracHdths) external;
     function setMakerFee(uint256 perpId, uint256 makerFeePer100K) external;
+    function setMarginTol(uint256 perpId, uint256 tolerance, uint256 decimals) external;
     function setMaxOpenInterest(uint256 perpId, uint256 maxOpenInterestLNS) external;
     function setMinAccountOpenAmount(uint256 amountCNS) external;
     function setMinPost(uint256 minPostCNS) external;
     function setMinSettle(uint256 minSettleCNS) external;
     function setMinWithdrawLimit(uint256 limitCNS) external;
+    function setMonitorAdministrator(address monitorAdministrator, bool add) external;
     function setOverCollatDescentThreshold(uint256 perpId, uint256 threshHdths) external;
     function setPermissionedCancelParams(uint256 perpId, uint256 permCancelMinOrders, uint256 permCancelSegment)
         external;
@@ -390,8 +467,11 @@ interface IExchange {
     function setWhitelistingEnabled(bool enabled) external;
     function setWithdrawBypass(address addr, bool enabled) external;
     function transferOwnership(address newOwner) external;
+    function triggerUnwindContract(uint256 perpId) external;
     function unwindContract(uint256 perpId, uint256 maxPosToUnwind, bool allowWithoutPayment) external;
+    function unwindContractByOwner(uint256 perpId, uint256 maxPosToUnwind, bool allowWithoutPayment) external;
     function updateMarkPricePNS(uint256 perpId, uint32 markPricePNS) external;
+    function updateMarkPricePNSByOwner(uint256 perpId, uint32 markPricePNS) external;
     function updateOraclePrice(uint256 perpId, bytes memory unverifiedReport) external;
     function upgradeTo(address newImplementation) external;
     function upgradeToAndCall(address newImplementation, bytes memory data) external payable;

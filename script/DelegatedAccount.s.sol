@@ -8,6 +8,7 @@ import {DelegatedAccount} from "../src/DelegatedAccount.sol";
 import {DelegatedAccountFactory} from "../src/DelegatedAccountFactory.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 import {IEip712WithOperatorNonces, SignScript} from "./helpers/SignScript.sol";
+import {OperatorAllowlistScript} from "./helpers/OperatorAllowlistScript.sol";
 
 /// @notice Deploys the DelegatedAccountFactory (implementation + beacon created internally)
 /// @dev Run with: forge script script/DelegatedAccount.s.sol --rpc-url <RPC_URL> --broadcast --private-key <KEY>
@@ -172,14 +173,14 @@ contract SignCreateScript is SignScript {
     }
 }
 
-/// @notice Sets exchange approval, creates exchange account, and optionally enables forwarding
+/// @notice Reconciles the operator allowlist, creates the exchange account, and optionally enables forwarding
 /// @dev Must be run by the DelegatedAccount owner.
 ///      Run with: forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
 ///      Or with Ledger: forge script script/DelegatedAccount.s.sol:SetupDelegatedAccountScript --rpc-url <RPC_URL> --broadcast --ledger
-contract SetupDelegatedAccountScript is Script {
+contract SetupDelegatedAccountScript is OperatorAllowlistScript {
     using SafeERC20 for IERC20;
 
-    uint256 constant MIN_DEPOSIT = 100_000_000; // Exchange's minimum for account creation
+    uint256 constant MIN_DEPOSIT = 10_000_000; // Exchange's minimum for account creation
 
     function run() public {
         address delegatedAccountAddr = vm.envAddress("DELEGATED_ACCOUNT");
@@ -193,17 +194,16 @@ contract SetupDelegatedAccountScript is Script {
 
         vm.startBroadcast();
 
+        // Bring the allowlist baked in at initialization up to the current Exchange ABI
+        syncOperatorAllowlist(delegatedAccount);
+
         // Transfer collateral tokens to the DelegatedAccount if needed
         uint256 balance = collateralToken.balanceOf(delegatedAccountAddr);
         if (balance < depositAmount) {
             uint256 deficit = depositAmount - balance;
             collateralToken.safeTransfer(delegatedAccountAddr, deficit);
-            console.log("Transferred collateral:", deficit);
+            console.log("Transferred collateral to delegated account:", deficit);
         }
-
-        // Set exchange approval for the deposit amount
-        delegatedAccount.setExchangeApproval(depositAmount);
-        console.log("Exchange approval set to:", depositAmount);
 
         // Create exchange account with initial deposit
         delegatedAccount.createAccount(depositAmount);
@@ -217,5 +217,26 @@ contract SetupDelegatedAccountScript is Script {
         }
 
         vm.stopBroadcast();
+    }
+}
+
+/// @notice Reconciles an existing DelegatedAccount's operator allowlist with the current Exchange ABI
+/// @dev Must be run by the DelegatedAccount owner. Use this for accounts that have already been
+///      through SetupDelegatedAccountScript — that script cannot be re-run once the exchange
+///      account exists, because `createAccount` reverts with AccountAlreadyCreated.
+///      Idempotent: sends no transactions when the allowlist is already correct.
+///
+///      export DELEGATED_ACCOUNT=0x...
+///      forge script script/DelegatedAccount.s.sol:SyncOperatorAllowlistScript --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+///      Or with Ledger: forge script script/DelegatedAccount.s.sol:SyncOperatorAllowlistScript --rpc-url <RPC_URL> --broadcast --ledger
+contract SyncOperatorAllowlistScript is OperatorAllowlistScript {
+    function run() public {
+        DelegatedAccount delegatedAccount = DelegatedAccount(payable(vm.envAddress("DELEGATED_ACCOUNT")));
+
+        vm.startBroadcast();
+        syncOperatorAllowlist(delegatedAccount);
+        vm.stopBroadcast();
+
+        console.log("Operator allowlist synced for:", address(delegatedAccount));
     }
 }

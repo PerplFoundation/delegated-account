@@ -5,7 +5,9 @@ interface IExchangeEvents {
     type FreezeStatusEnum is uint8;
     type OrderDescEnum is uint8;
     type OrderEnum is uint8;
+    type PerpStatusEnum is uint8;
     type PositionEnum is uint8;
+    type TriggerPriceConditionEnum is uint8;
 
     event AccountCreated(address account, uint256 id);
     event AccountFreeze(uint256 accountId, FreezeStatusEnum status);
@@ -26,8 +28,26 @@ interface IExchangeEvents {
         uint256 perpId, uint256 insAmtPer100K, uint256 userAmtPer100K, uint256 buyerAmtPer100K, uint256 protAmtPer100K
     );
     event BuyToLiquidateRestrictionUpdated(uint256 perpId, bool restrictBuyers);
+    event BuyToLiquidateSettled(
+        uint256 perpId,
+        uint256 accountId,
+        OrderEnum orderType,
+        uint256 realizedPricePNS,
+        uint256 lotLNS,
+        int256 amountCNS,
+        uint256 balanceCNS
+    );
     event BuyToLiquidateSlippageExceeded(
         uint256 perpId, uint256 posAccountId, PositionEnum positionType, uint256 markPricePNS, uint256 limitPricePNS
+    );
+    event BuyToLiquidateStarted(
+        uint256 perpId,
+        uint256 posAccountId,
+        uint256 liquidatorId,
+        uint256 requestedLotLNS,
+        uint256 leverageHdths,
+        uint256 limitPricePNS,
+        uint256 maxNegPnlCollatBPS
     );
     event BuyToLiquidateThresholdUpdated(uint256 perpId, uint256 thresholdPer100K);
     event CancelExistingInvalidCloseOrders(
@@ -64,7 +84,6 @@ interface IExchangeEvents {
         uint256 perpId, uint256 posAccountId, PositionEnum positionType, uint256 markPricePNS, uint256 liqPricePNS
     );
     event ChangeExpiredOrderNeedsNewExpiry(uint256 perpId, uint256 orderId, uint256 accountId, uint256 expiryBlock);
-    event ClearedDecreaseCollatParams(uint256 perpId, uint256 accountId);
     event ClearingExpiredOrder(
         uint256 perpId,
         uint256 accountId,
@@ -92,6 +111,18 @@ interface IExchangeEvents {
         int256 recyclerAmountCNS,
         uint256 recyclerBalanceCNS
     );
+    event ClearingRemainingOrderLockBeyondBalance(
+        uint256 perpId,
+        uint256 accountId,
+        uint256 orderId,
+        uint256 pricePNS,
+        uint256 remainingLotLNS,
+        uint256 lockedBalanceCNS,
+        uint256 excessiveLockedBalCNS,
+        uint256 recyclerAccountId,
+        int256 recyclerAmountCNS,
+        uint256 recyclerBalanceCNS
+    );
     event ClearingSelfMatchingOrder(
         uint256 perpId,
         uint256 accountId,
@@ -103,17 +134,18 @@ interface IExchangeEvents {
     );
     event CloseOrderExceedsPosition(uint256 posLotLNS, uint256 orderLotLNS);
     event CloseOrderPositionMismatch(PositionEnum positionType, OrderEnum orderType);
-    event CollateralDecreaseApproved(
+    event CollateralDecreaseDeclined(uint256 perpId, uint256 accountId, string reason);
+    event CollateralDecreaseRequestCancelled(uint256 perpId, uint256 accountId);
+    event CollateralDecreaseRequestExpired(uint256 perpId, uint256 accountId, uint256 expiryTS, uint256 blockTS);
+    event CollateralDecreaseRequested(
         uint256 perpId,
         uint256 accountId,
         uint256 expiryTS,
-        uint256 impactAdjPricePNS,
-        uint256 borrowMarginFracHdths,
-        PositionEnum positionType
-    );
-    event CollateralDecreaseDeclined(uint256 perpId, uint256 accountId);
-    event CollateralDecreaseRequested(
-        uint256 perpId, uint256 accountId, PositionEnum positionType, uint256 entryPricePNS, uint256 lotLNS
+        uint256 amountCNS,
+        bool clampToMaximum,
+        PositionEnum positionType,
+        uint256 entryPricePNS,
+        uint256 lotLNS
     );
     event CollateralDeposit(uint256 accountId, uint256 amountCNS, uint256 balanceCNS);
     event CollateralWithdrawal(uint256 accountId, uint256 amountCNS, uint256 balanceCNS);
@@ -121,7 +153,7 @@ interface IExchangeEvents {
         uint256 perpId,
         string name,
         string symbol,
-        bool paused,
+        PerpStatusEnum status,
         uint256 basePricePNS,
         uint256 priceDecimals,
         uint256 lotDecimals,
@@ -134,6 +166,8 @@ interface IExchangeEvents {
         uint256 overColDescentThreshHdths,
         uint256 dcpBorrowThreshHdths,
         uint256 priceTolPer100K,
+        uint256 marginTol,
+        uint256 marginTolDecimals,
         uint256 refPriceMaxAgeSec,
         uint256 absFundingClampPctPer100K,
         uint256 permCancelMinOrders,
@@ -148,8 +182,8 @@ interface IExchangeEvents {
         uint256 btlBuyerAmtPer100K,
         uint256 numPerpetuals
     );
-    event ContractIsPaused(uint256 perpId);
     event ContractLinkFeedUpdated(uint256 perpId, bytes32 feedId);
+    event ContractNotOperational(uint256 perpId, PerpStatusEnum status);
     event ContractPaused(uint256 perpId, bool paused);
     event ContractRemoved(uint256 perpId);
     event CrossesBook(uint256 minAskOrMaxBidPNS, bool maxOrdersChecked);
@@ -157,7 +191,6 @@ interface IExchangeEvents {
     event DecreaseCollateralBeyondMarkPrice(
         uint256 perpId, uint256 accountId, PositionEnum positionType, uint256 impactAdjPricePNS, uint256 markPricePNS
     );
-    event DecreaseCollateralParamsExpired(uint256 perpId, uint256 accountId, uint256 expiryTS, uint256 blockTS);
     event DeleveragePositionListEmpty(uint256 perpId, uint256 accountId);
     event ExceedsLastExecutionBlock(uint256 lastExecutionBlock);
     event ExchangeHalted(bool halted);
@@ -188,6 +221,7 @@ interface IExchangeEvents {
     event FundingSumAlreadySet(
         uint256 perpId, uint256 fundingEventBlock, uint256 storageIndex, uint256 fundingSumOffset
     );
+    event FundingSumScalingExpUpdated(uint256 perpId, uint256 newExp);
     event IgnoreOracleUpdated(uint256 perpId, bool ignOracle);
     event ImmediateOrCancelExecuted(uint256 unmatchedLotLNS, uint256 totalLotLNS);
     event IncreasePositionCollateral(
@@ -231,6 +265,7 @@ interface IExchangeEvents {
     );
     event InvalidOrderId(uint256 orderId, uint256 min, uint256 max);
     event LastForwardedDescIdReset(uint256 accountId, uint256 newDescId);
+    event LastTriggeredDescIdReset(uint256 accountId, uint256 newDescId);
     event LinkDatastreamConfigured(address verifierProxy);
     event LinkDsError(uint256 perpId, bytes lowLevelData);
     event LinkDsError(uint256 perpId, string reason);
@@ -261,12 +296,14 @@ interface IExchangeEvents {
         OrderEnum orderType,
         uint256 pricePNS,
         uint256 lotLNS,
+        uint256 maxNegPnlCollatBPS,
         uint256 reason,
         uint256 lockedBalanceCNS,
         uint256 recyclerAccountId,
         int256 recyclerAmountCNS,
         uint256 recyclerBalanceCNS
     );
+    event MarginTolUpdated(uint256 perpId, uint256 tolerance, uint256 decimals);
     event MarkExceedsTol(uint256 perpId, uint256 markPNS, uint256 spotOraclePricePNS, uint256 tolerancePer100k);
     event MarkPriceAgeExceedsMax(uint256 perpId, uint256 markTimestamp, uint256 timestamp, uint256 maxAgeSec);
     event MarkUpdated(uint256 perpId, uint256 pricePNS);
@@ -276,6 +313,8 @@ interface IExchangeEvents {
     event MinAccountOpenAmountUpdated(uint256 minAccountOpenCNS);
     event MinPostUpdated(uint256 minPostCNS);
     event MinSettleUpdated(uint256 minSettleCNS);
+    event MonitorAdministratorUpdated(address monitorAdministrator, bool added);
+    event MonitorPauseAttempted(uint256 perpId, PerpStatusEnum actualStatus, bool transitioned);
     event OracleAgeExceedsMax(uint256 perpId, uint256 oracleTimestamp, uint256 timestamp, uint256 maxAgeSec);
     event OracleDisabled(uint256 perpId);
     event OrderBatchCompleted(uint256 gasLeft);
@@ -312,6 +351,7 @@ interface IExchangeEvents {
         uint256 leverageHdths,
         uint256 lastExecutionBlock,
         uint256 amountCNS,
+        uint256 maxNegPnlCollatBPS,
         uint256 gasLeft
     );
     event OrderSettlementImpliesInsolvent(
@@ -330,6 +370,15 @@ interface IExchangeEvents {
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event PermissonedCancelParamsUpdated(uint256 cancelMinOrders, uint256 cancelSegment);
+    event PerpPositionBalCreditPositiveSevere(
+        uint256 perpId,
+        uint256 accountId,
+        uint256 realizedPricePNS,
+        uint256 lotLNS,
+        bool userProceedsToPosition,
+        bool buyToLiquidate,
+        int256 creditPerpBalCNS
+    );
     event PositionAdministratorUpdated(address positionAdministrator, bool added);
     event PositionClosed(
         uint256 perpId,
@@ -350,7 +399,8 @@ interface IExchangeEvents {
         uint256 startEntryPricePNS,
         uint256 endEntryPricePNS,
         uint256 effBmfHdths,
-        uint256 decreaseCNS
+        uint256 decreaseCNS,
+        uint256 balanceCNS
     );
     event PositionDecreased(
         uint256 perpId,
@@ -380,6 +430,24 @@ interface IExchangeEvents {
         uint256 amountCNS,
         uint256 balanceCNS
     );
+    event PositionDeleveragedV2(
+        uint256 perpId,
+        uint256 accountId,
+        bool forceClose,
+        PositionEnum positionType,
+        uint256 entryPricePNS,
+        uint256 markPricePNS,
+        uint256 deleveragePricePNS,
+        int256 deltaPnlCNS,
+        int256 fundingCNS,
+        uint256 startDepositCNS,
+        uint256 endDepositCNS,
+        uint256 startLotLNS,
+        uint256 endLotLNS,
+        uint256 amountCNS,
+        uint256 balanceCNS,
+        uint256 priceResiduePNSQ16
+    );
     event PositionDoesNotExist(uint256 perpId, uint256 accountId);
     event PositionIncreased(
         uint256 perpId,
@@ -388,11 +456,31 @@ interface IExchangeEvents {
         uint256 leverageHdths,
         uint256 startDepositCNS,
         uint256 endDepositCNS,
+        int256 pnlCollateralizedCNS,
+        int256 premiumPnlSettledCNS,
+        uint256 maxNegPnlCollatBPS,
         uint256 pricePNS,
         uint256 startLotLNS,
         uint256 endLotLNS,
         uint256 insFeeCNS,
         uint256 protFeeCNS
+    );
+    event PositionIncreasedV2(
+        uint256 perpId,
+        uint256 accountId,
+        PositionEnum positionType,
+        uint256 leverageHdths,
+        uint256 startDepositCNS,
+        uint256 endDepositCNS,
+        int256 pnlCollateralizedCNS,
+        int256 premiumPnlSettledCNS,
+        uint256 maxNegPnlCollatBPS,
+        uint256 pricePNS,
+        uint256 startLotLNS,
+        uint256 endLotLNS,
+        uint256 insFeeCNS,
+        uint256 protFeeCNS,
+        uint256 priceResiduePNSQ16
     );
     event PositionInverted(
         uint256 perpId,
@@ -401,6 +489,7 @@ interface IExchangeEvents {
         uint256 leverageHdths,
         uint256 startDepositCNS,
         uint256 endDepositCNS,
+        int256 pnlCollateralizedCNS,
         uint256 pricePNS,
         uint256 startLotLNS,
         uint256 endLotLNS,
@@ -432,13 +521,24 @@ interface IExchangeEvents {
         PositionEnum positionType,
         uint256 leverageHdths,
         uint256 depositCNS,
+        int256 pnlCollateralizedCNS,
         uint256 pricePNS,
         uint256 lotLNS,
         uint256 insFeeCNS,
         uint256 protFeeCNS
     );
-    event PositionTypeMismatch(
-        uint256 perpId, uint256 accountId, PositionEnum positionType, PositionEnum specifiedType
+    event PositionOpenedV2(
+        uint256 perpId,
+        uint256 accountId,
+        PositionEnum positionType,
+        uint256 leverageHdths,
+        uint256 depositCNS,
+        int256 pnlCollateralizedCNS,
+        uint256 pricePNS,
+        uint256 lotLNS,
+        uint256 insFeeCNS,
+        uint256 protFeeCNS,
+        uint256 priceResiduePNSQ16
     );
     event PositionUnwound(
         uint256 perpId,
@@ -452,6 +552,19 @@ interface IExchangeEvents {
         uint256 paymentCNS,
         uint256 balanceCNS
     );
+    event PositionUnwoundV2(
+        uint256 perpId,
+        uint256 accountId,
+        uint256 markPricePNS,
+        PositionEnum positionType,
+        uint256 pricePNS,
+        uint256 lotLNS,
+        uint256 depositCNS,
+        int256 positionFmvCNS,
+        uint256 paymentCNS,
+        uint256 balanceCNS,
+        uint256 priceResiduePNSQ16
+    );
     event PositionUnwoundWithoutPayment(
         uint256 perpId,
         uint256 accountId,
@@ -463,42 +576,87 @@ interface IExchangeEvents {
         int256 positionFmvCNS,
         uint256 amountOwedCNS
     );
+    event PositionUnwoundWithoutPaymentV2(
+        uint256 perpId,
+        uint256 accountId,
+        uint256 markPricePNS,
+        PositionEnum positionType,
+        uint256 pricePNS,
+        uint256 lotLNS,
+        uint256 depositCNS,
+        int256 positionFmvCNS,
+        uint256 amountOwedCNS,
+        uint256 priceResiduePNSQ16
+    );
     event PostOrderUnderMinimum(uint256 orderAmountCNS, uint256 minAmountCNS);
     event PriceAdministratorUpdated(address priceAdministrator, bool added);
     event PriceMaxAgeUpdated(uint256 perpId, uint256 maxAgeSec);
     event PriceOutOfRange(uint256 minPricePNS, uint256 maxPricePNS);
+    event PriceSetDuringTriggerExec(uint256 triggerPricePNS);
     event PriceTolUpdated(uint256 perpId, uint256 tolPer100k);
     event ProtocolBalanceDeposit(uint256 amountCNS);
     event ProtocolBalanceWithdraw(uint256 amountCNS);
     event RecycleBalanceInsufficientSevere(
-        uint256 accountId, uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS
+        uint256 accountId, uint256 perpId, uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS
     );
+    event RecycleFeeToAccount(
+        uint256 accountId, uint256 perpId, uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS
+    );
+    event RecycleFeeToProtocol(uint256 perpId, uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS);
     event RecycleFeeUpdated(uint256 recycleFeeCNS);
-    event RecyleFeeToProtocol(uint256 orderId, uint256 recycleFeeCNS, uint256 recycleBalanceCNS);
     event ReportAgeExceedsLastUpdate(uint256 perpId, uint256 lastUpdateTimestamp, uint256 reportValidFromTimestamp);
+    event ReportExpiresTooSoon(uint256 perpId, uint256 expiresAt, uint256 minRequired);
+    event ReportFromFuture(uint256 perpId, uint256 reportTimestamp, uint256 blockTimestamp);
     event ReportPriceIsNegative(uint256 perpId, int256 reportPrice);
+    event ResidueBalanceInsufficient(uint256 perpId, uint256 requestedAmountCNS, uint256 positionBalanceCNS);
+    event ResidueTransferred(uint256 perpId, uint256 residueAmountCNS, uint256 positionBalanceCNS);
     event TakerFeeUpdated(uint256 perpId, uint256 takerFeePer100K);
-    event TakerOrderFilled(uint256 pricePNS, uint256 lotLNS, uint256 feeCNS, int256 amountCNS, uint256 balanceCNS);
+    event TakerOrderFilled(
+        uint256 entryPricePNS,
+        uint256 collatPricePNS,
+        uint256 pnlPricePNS,
+        uint256 lotLNS,
+        uint256 feeCNS,
+        int256 amountCNS,
+        uint256 balanceCNS
+    );
     event ToleranceAdministratorUpdated(address toleranceAdministrator, bool added);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event TransferAccountToProtocol(uint256 accountId, uint256 amountCNS, uint256 balanceCNS);
     event TransferPerpInsToProtocol(uint256 perpId, uint256 amountCNS);
+    event TransferPerpPosToProtocol(uint256 perpId, uint256 amountCNS);
     event TransferProtocolToAccount(uint256 accountId, uint256 amountCNS, uint256 balanceCNS);
     event TransferProtocolToPerp(uint256 perpId, uint256 amountCNS, bool toInsuranceFund);
     event TransferProtocolToRecycleBal(uint256 amountCNS);
+    event TriggerDescIdTooLow(uint256 lastTriggerDescId);
+    event TriggerOrderExecution();
+    event TriggerOrderRequest(
+        uint256 triggerPricePNS,
+        TriggerPriceConditionEnum triggerPriceCondition,
+        uint256 triggerRequestId,
+        uint256 triggerPositionId
+    );
     event UnableToCancelOrder(uint256 perpId, uint256 orderId);
     event UnityDescentThreshUpdated(uint256 perpId, uint256 threshHdths);
     event UnspecifiedCollateral();
-    event UnwindCompleted(uint256 perpId, uint256 positionsUnwound, uint256 perpPositionBalanceCNS);
+    event UnwindCompleted(
+        uint256 perpId, uint256 positionsUnwound, uint256 perpPositionBalanceCNS, uint256 insuranceBalanceCNS
+    );
+    event UnwindContractTrigger(uint256 perpId);
     event UnwindInitializationCleared(uint256 perpId);
     event UnwindInitialized(uint256 perpId, uint256 sumPositiveFmvCNS);
     event UnwindInsufficientBalance(
         uint256 perpId, uint256 accountId, uint256 perpPositionBalanceCNS, uint256 paymentCNS
     );
-    event UnwindIterationCompleted(uint256 perpId, uint256 positionsUnwound, uint256 perpPositionBalanceCNS);
+    event UnwindIterationCompleted(
+        uint256 perpId, uint256 positionsUnwound, uint256 perpPositionBalanceCNS, uint256 insuranceBalanceCNS
+    );
+    event UnwindPreparationCleared(uint256 perpId);
+    event UnwindPrepared(uint256 perpId);
+    event UnwindProcessInProgress(uint256 perpId);
     event UpdateOracleFailed(uint256 perpId);
     event Upgraded(address indexed implementation);
-    event ValueOutOfRange(uint256 value, uint256 min, uint256 max);
+    event ValueExceedsMaximum(uint256 value, uint256 maximum);
     event WRLSMinWithdrawLimitUpdated(uint256 limitCNS);
     event WRLSThousandthsTvlUpdated(uint256 thousandthsTvl);
     event WhitelistAddress(address indexed addr, bool whitelisted);

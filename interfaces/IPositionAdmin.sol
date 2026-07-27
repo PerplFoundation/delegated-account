@@ -38,13 +38,20 @@ interface IPositionAdmin {
         uint256 leverageHdths;
         uint256 lastExecutionBlock;
         uint256 amountCNS;
+        uint256 maxNegPnlCollatBPS;
     }
 
     function acceptOwnership() external;
     function addressBlocked(address) external view returns (bool);
     function autoDeleverage(AdlDesc[] memory adlDescs, bool revertOnFail) external;
-    function clearDecreaseCollatParams(uint256 perpId, uint256 accountId) external;
-    function declineDecreaseCollateral(uint256 perpId, uint256 accountId) external;
+    function declineDecreaseCollateralRequest(uint256 perpId, uint256 accountId, string memory reason) external;
+    function decreasePositionCollateral(
+        uint256 perpId,
+        uint256 accountId,
+        uint32 impactAdjPricePNS,
+        uint16 borrowMarginFracHdths,
+        PositionEnum positionType
+    ) external;
     function execFznAccountPosOps(FznOrderDesc[] memory fznAccountCloseOrders) external;
     function forceClose(uint256 perpId, uint256 posAccountId, uint256[] memory sortedPositionIds, bool revertOnFail)
         external
@@ -54,15 +61,8 @@ interface IPositionAdmin {
     function owner() external view returns (address);
     function pendingOwner() external view returns (address);
     function renounceOwnership() external;
-    function setDecreaseCollatParams(
-        uint256 perpId,
-        uint256 accountId,
-        uint32 expiryTS,
-        uint32 impactAdjPricePNS,
-        uint16 borrowMarginFracHdths,
-        PositionEnum positionType
-    ) external;
     function transferOwnership(address newOwner) external;
+    function unwindContract(uint256 perpId, uint256 maxPosToUnwind, bool allowWithoutPayment) external;
     function whitelisted(address) external view returns (bool);
     function whitelistingEnabled() external view returns (bool);
 }

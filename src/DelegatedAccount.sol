@@ -95,12 +95,13 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
         // Give Exchange infinite approval (trusted contract)
         IERC20(_collateralToken).forceApprove(_exchange, type(uint256).max);
 
-        // Initialize operator allowlist with Exchange function selectors
+        // Initialize operator allowlist with Exchange function selectors.
+        // Deliberately excluded: decreasePositionCollateral, which is the keeper-side settlement of
+        // a decrease. Operators request one via requestDecreasePositionCollateral.
         operatorAllowlist[IExchange.execOrder.selector] = true;
         operatorAllowlist[IExchange.execOrders.selector] = true;
         operatorAllowlist[IExchange.increasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.requestDecreasePositionCollateral.selector] = true;
-        operatorAllowlist[IExchange.decreasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.buyLiquidations.selector] = true;
         operatorAllowlist[IExchange.depositCollateral.selector] = true;
         operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;

@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 interface IExchangeErrors {
     type FreezeStatusEnum is uint8;
     type OrderEnum is uint8;
+    type PerpStatusEnum is uint8;
     type PositionEnum is uint8;
 
     error AccountDoesNotExist(address accountAddress);
@@ -76,6 +77,7 @@ interface IExchangeErrors {
     error ChangeExpiredOrderNeedsNewExpiry(uint256 perpId, uint256 orderId, uint256 accountId, uint256 expiryBlock);
     error CloseOrderExceedsPosition(uint256 posLotLNS, uint256 orderLotLNS);
     error CloseOrderPositionMismatch(PositionEnum positionType, OrderEnum orderType);
+    error ConfigEntryLimit(uint256 requested, uint256 max);
     error ContractCannotBeRemoved(uint256 perpId);
     error ContractDecimalsExceedResolution(
         uint256 perpId, uint256 collateralDecimals, uint256 priceDecimals, uint256 lotDecimals
@@ -84,8 +86,9 @@ interface IExchangeErrors {
     error ContractIdExceedsMaximum(uint256 perpId);
     error ContractIdInUse(uint256 perpId);
     error ContractInsufficientFunds(uint256 balanceCNS, uint256 requestCNS);
-    error ContractIsPaused(uint256 perpId);
-    error ContractNotPaused(uint256 perpId);
+    error ContractNotOperational(uint256 perpId, PerpStatusEnum status);
+    error ContractNotPaused(uint256 perpId, PerpStatusEnum status);
+    error ContractNotUnwindPrepared(uint256 perpId, PerpStatusEnum status);
     error CriticalPerpetualInsolvent(
         uint256 perpId, uint256 perpPositionBalCNS, uint256 perpInsuranceBalCNS, uint256 amountCNS
     );
@@ -98,14 +101,15 @@ interface IExchangeErrors {
         bool maxOrdersChecked
     );
     error DcpBorrowMustBeLessThanUnityDescent(uint256 dcpBorrowThreshHdths, uint256 unityDescentThreshHdths);
-    error DecreaseCollateralParamsDontExist(uint256 perpId, uint256 accountId);
+    error DecreaseCollateralRequestDoesNotExist(uint256 perpId, uint256 accountId);
     error DecrementUnderflows(uint256 decrement, uint256 minuend);
     error DeleveragePositionListEmpty(uint256 perpId, uint256 accountId);
     error DifferenceExceedsInt256(uint256 value1, uint256 value2);
     error DifferenceExceedsMaximum(uint256 value, uint256 decrement, uint256 maximum);
+    error DuplicatePerpIdInConfig(uint256 perpId);
+    error DuplicatePerpIdInResidueXfers(uint256 perpId);
     error ExceedsLastExecutionBlock(uint256 lastExecutionBlock);
     error ExchangeHalted();
-    error ExpiryTimestampOutsideRange(uint256 perpId, uint256 value, uint256 minimum, uint256 maximum);
     error FundingEventSetTooEarly(uint256 perpId, uint256 blockNumber, uint256 fundingEventBlock);
     error FundingExitBlockPreceedsEntryBlock(uint256 perpId, uint256 entryBlock, uint256 exitBlock);
     error FundingPriceExceedsTol(uint256 perpId, uint256 fundingPricePNS, uint256 oraclePNS, uint256 tolerancePer100k);
@@ -138,7 +142,9 @@ interface IExchangeErrors {
     error InvalidBorrowFraction(
         uint256 perpId, uint256 proposedBorrowFracHdths, uint256 minMarginFracHdths, uint256 initMarginFracHdths
     );
+    error InvalidDenominatorDecimals(uint256 denominatorDecimals, uint256 minimum, uint256 maximum);
     error InvalidExpiryBlock(uint256 expiryBlock, uint256 blockNumber);
+    error InvalidFundingSumScalingExp(uint256 perpId, uint256 newExp, uint256 maxExp);
     error InvalidLinkReportForContract(uint256 perpId, bytes32 perpFeedId, bytes32 reportFeedId);
     error InvalidLinkReportVersion(uint256 perpId, uint256 reportVersion);
     error InvalidLiquidationPrice(
@@ -197,10 +203,12 @@ interface IExchangeErrors {
         uint256 perpId, uint256 accountId, OrderEnum orderType, uint256 priceONS, uint256 lotLNS, bool isBid
     );
     error OrderSizeExceedsAvailableSize(uint256 orderLotLNS, uint256 availableLotLNS, uint256 positionLotLNS);
+    error OverflowPremiumCnsSevere(int256 premiumPnlCNS);
     error PermissionlessCancelOrdersOutOfRange(uint256 permissionlessCancelMinOrders, uint256 minimum, uint256 maximum);
     error PerpInsolvencyCheckFailedSevere(
         uint256 perpId, uint256 positionBalanceCNS, uint256 insuranceBalanceCNS, uint256 amountCNS
     );
+    error PerpetualActivated(uint256 perpId);
     error PerpetualNotActivated(uint256 perpId);
     error PositionAlreadyInListSevere(uint256 perpId, uint256 accountId);
     error PositionCannotBeDeleveraged(
@@ -213,6 +221,7 @@ interface IExchangeErrors {
         uint256 markPricePNS
     );
     error PositionDoesNotExist(uint256 perpId, uint256 accountId);
+    error PositionTypeMismatch(uint256 perpId, uint256 accountId, PositionEnum expected, PositionEnum actual);
     error PostOrderUnderMinimum(uint256 orderAmountCNS, uint256 minAmountCNS);
     error PriceLotDecimalSumExceedsCollateralSevere(uint256 priceDecimals, uint256 lotDecimals);
     error PriceOutOfRange(uint256 pricePNS, uint256 minPricePNS, uint256 maxPricePNS);
@@ -220,11 +229,16 @@ interface IExchangeErrors {
     error ProposedFundingRateClampExceedsMax(
         uint256 perpId, uint256 proposedClampPctPer100k, uint256 maxClampPctPer100k
     );
+    error ProposedMarginTolExceedsMax(uint256 perpId, uint256 proposedTol, uint256 maxTol);
     error ProposedPriceAgeExceedsMax(uint256 perpId, uint256 proposedAgeSec, uint256 maxAgeSec);
     error ProposedPriceTolExceedsMax(uint256 perpId, uint256 proposedTol, uint256 maxTolPer100k);
     error ReportAgeExceedsLastUpdate(uint256 perpId, uint256 lastUpdateTimestamp, uint256 reportValidFromTimestamp);
+    error ReportExpiresTooSoon(uint256 perpId, uint256 expiresAt, uint256 minRequired);
+    error ReportFromFuture(uint256 perpId, uint256 reportTimestamp, uint256 blockTimestamp);
     error ReportPriceIsNegative(uint256 perpId, int256 reportPrice);
+    error ResidueTransferEntryLimit(uint256 requested, uint256 max);
     error SenderIsNotAdministrator(address sender);
+    error SenderIsNotMonitorAdministrator(address sender);
     error SenderIsNotPositionAdministrator(address sender);
     error SenderIsNotPriceAdministrator(address sender);
     error SenderIsNotToleranceAdministrator(address sender);
@@ -232,7 +246,9 @@ interface IExchangeErrors {
     error TakerOrderSettlementFailed(
         uint256 perpId,
         uint256 accountId,
-        uint256 pricePNS,
+        uint256 entryPricePNS,
+        uint256 collatPricePNS,
+        uint256 pnlPricePNS,
         uint256 filledLotLNS,
         uint256 unfillableLotLNS,
         uint256 resultCode
@@ -243,8 +259,10 @@ interface IExchangeErrors {
     error UnityMustBeLessThanOverColDescent(uint256 unityDescentThreshHdths, uint256 overColDescentThreshHdths);
     error UnmatchedLotRemainsInFillOrKill(uint256 perpId, uint256 accountId, uint256 unmatchedLotLNS);
     error UnspecifiedCollateral();
-    error UnwindNotInitialized(uint256 perpId);
-    error UnwindProcessInitialized(uint256 perpId);
+    error UnwindAlreadyInitialized(uint256 perpId);
+    error UnwindNotInitialized(uint256 perpId, PerpStatusEnum perpStatus);
+    error UnwindNotPrepared(uint256 perpId, PerpStatusEnum perpStatus);
+    error UnwindProcessInProgress(uint256 perpId);
     error UnwindProcessStarted(uint256 perpId);
     error UpdateOracleFailed(uint256 perpId);
     error ValueExceedsMaximum(uint256 value, uint256 maximum);

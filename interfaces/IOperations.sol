@@ -10,6 +10,7 @@ interface IOperations {
         uint256 lotLNS;
         uint256 leverageHdths;
         uint256 limitPricePNS;
+        uint256 maxNegPnlCollatBPS;
     }
 
     struct OrderDesc {
@@ -27,6 +28,7 @@ interface IOperations {
         uint256 leverageHdths;
         uint256 lastExecutionBlock;
         uint256 amountCNS;
+        uint256 maxNegPnlCollatBPS;
     }
 
     struct OrderSignature {
@@ -37,7 +39,7 @@ interface IOperations {
     function acceptOwnership() external;
     function addressBlocked(address) external view returns (bool);
     function buyLiquidations(BuyToLiquidateDesc[] memory liquidationDescs, bool revertOnFail) external;
-    function decreasePositionCollateral(uint256 perpId, uint256 amountCNS, bool clampToMaximum) external;
+    function cancelDecreaseCollateralRequest(uint256 perpId) external;
     function execOrder(OrderDesc memory orderDesc) external returns (OrderSignature memory signature);
     function execOrders(OrderDesc[] memory orderDescs, bool revertOnFail)
         external
@@ -46,7 +48,7 @@ interface IOperations {
     function owner() external view returns (address);
     function pendingOwner() external view returns (address);
     function renounceOwnership() external;
-    function requestDecreasePositionCollateral(uint256 perpId) external;
+    function requestDecreasePositionCollateral(uint256 perpId, uint256 amountCNS, bool clampToMaximum) external;
     function transferOwnership(address newOwner) external;
     function whitelisted(address) external view returns (bool);
     function whitelistingEnabled() external view returns (bool);
