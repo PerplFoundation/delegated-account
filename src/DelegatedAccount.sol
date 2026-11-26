@@ -96,12 +96,23 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
         IERC20(_collateralToken).forceApprove(_exchange, type(uint256).max);
 
         // Initialize operator allowlist with Exchange function selectors.
-        // Deliberately excluded: decreasePositionCollateral, which is the keeper-side settlement of
-        // a decrease. Operators request one via requestDecreasePositionCollateral.
+        // Deliberately excluded: decreasePositionCollateral, the Position Administrator's
+        // settlement of a decrease. Operators request one via requestDecreasePositionCollateral.
+        // Notes:
+        //  - The allowlist filters on selector only. Order types carried inside execOrder /
+        //    execOrders (from Exchange v1.1.7.6 this includes RequestDecreasePositionCollateral and
+        //    CancelDecreaseCollateralRequest) are forwarded as-is; cancelDecreaseCollateralRequest
+        //    is therefore granted directly too, so the operator's reach is the same either way.
+        //  - execOrderV2 / execOrdersV2 let the operator name client order ids. The same extension
+        //    envelope also carries a builder code and builder fee on the account's orders. An owner
+        //    who does not accept that revokes both via setOperatorAllowlist().
         operatorAllowlist[IExchange.execOrder.selector] = true;
         operatorAllowlist[IExchange.execOrders.selector] = true;
+        operatorAllowlist[IExchange.execOrderV2.selector] = true;
+        operatorAllowlist[IExchange.execOrdersV2.selector] = true;
         operatorAllowlist[IExchange.increasePositionCollateral.selector] = true;
         operatorAllowlist[IExchange.requestDecreasePositionCollateral.selector] = true;
+        operatorAllowlist[IExchange.cancelDecreaseCollateralRequest.selector] = true;
         operatorAllowlist[IExchange.buyLiquidations.selector] = true;
         operatorAllowlist[IExchange.depositCollateral.selector] = true;
         operatorAllowlist[IExchange.allowOrderForwarding.selector] = true;
@@ -110,7 +121,9 @@ contract DelegatedAccount is Initializable, Ownable2StepUpgradeable, EIP712Upgra
     // ============ Fallback - Forwards calls to Exchange ============
 
     /// @notice Forwards any call to the Exchange contract
-    /// @dev Owner can call anything; operators can only call allowlisted functions
+    /// @dev Owner can call anything; operators can only call allowlisted functions.
+    ///      The check is on the 4-byte selector only: calldata is never decoded, so an allowlisted
+    ///      entry point carries every order type and parameter the Exchange accepts for it.
     fallback() external {
         address _owner = owner();
         address _exchange = exchange;

@@ -155,10 +155,12 @@ Unit tests (with mocks):
 forge test --no-match-contract Fork
 ```
 
-Fork tests against Monad testnet (uses real exchange contract):
+Fork tests against Monad testnet (uses real exchange contract). The `--fork-url` flag is required on recent Foundry versions, which pick the Monad EVM from the chain before any test runs:
 ```shell
 forge test --fork-url https://testnet-rpc.monad.xyz --match-contract Fork
 ```
+
+The fork tests pin a testnet block (`DEFAULT_FORK_BLOCK_NUMBER` in [test/DelegatedAccount.fork.t.sol](test/DelegatedAccount.fork.t.sol)). The public RPC keeps historical state for roughly the most recent 8M blocks, so the pin has to move forward now and then; override it for one run with `FORK_BLOCK_NUMBER=<n>`. Tests that need Exchange v1.1.7.6 skip while the pin predates the testnet upgrade.
 
 All tests:
 ```shell
@@ -184,19 +186,48 @@ DelegatedAccountFactory
 ### Default Operator Allowlist
 
 The operator can call these Exchange functions by default:
-- `execOrder`, `execOrders` - trading
-- `increasePositionCollateral`, `requestDecreasePositionCollateral` - position management
+- `execOrder`, `execOrders`, `execOrderV2`, `execOrdersV2` - trading (the V2 forms take an extension envelope with a client order id, a builder code and a builder fee)
+- `increasePositionCollateral`, `requestDecreasePositionCollateral`, `cancelDecreaseCollateralRequest` - position collateral management
 - `buyLiquidations` - liquidation buying
 - `depositCollateral` - deposits (via fallback)
 - `allowOrderForwarding` - order forwarding permission (TODO: should we keep this one?)
+
+The allowlist is checked on the 4-byte selector only. Calldata is never decoded, so an allowlisted entry point carries every order type and parameter the Exchange accepts for it. From Exchange v1.1.7.6, `execOrder` and `execOrders` accept order types 7 (`RequestDecreasePositionCollateral`) and 8 (`CancelDecreaseCollateralRequest`), so an operator with `execOrder` can file, rewrite or cancel the account's decrease-collateral request whether or not the direct selectors are granted. That is why `cancelDecreaseCollateralRequest` is on the default list next to `requestDecreasePositionCollateral`: granting one path and not the other protects nothing. The collateral a request releases goes to the account's own Exchange balance, which only the owner can withdraw. What the operator gains is the ability to lower the collateral of the owner's position, which moves its liquidation price. An owner who does not want that revokes `execOrder`, `execOrders` and `requestDecreasePositionCollateral` together.
 
 ### Security
 
 The operator is restricted:
 - **Permanently blocked**: `withdrawCollateral` - DelegatedAccount has a direct owner-only function that overrides the fallback
 - **Not in default allowlist**: `xferAcctToProtocol` - moves funds to protocol balance (owner can add to allowlist if needed)
+- **Not in default allowlist**: `decreasePositionCollateral` - the Position Administrator's settlement call, in both its pre- and post-1.7.6 form
+- **In the default allowlist, revoke if unwanted**: `execOrderV2` (`0x28d18da3`), `execOrdersV2` (`0x81e54cba`) - let the operator name client order ids, but the same extension envelope also names a **builder code and builder fee** on the account's orders. An owner who does not accept that the operator can route fees to a builder revokes both.
 
-The owner can modify the operator allowlist via `setOperatorAllowlist(selector, allowed)`.
+The owner can modify the operator allowlist via `setOperatorAllowlist(selector, allowed)`, or with the script:
+
+```shell
+export DELEGATED_ACCOUNT=0x...
+export SELECTOR=0x28d18da3   # execOrderV2
+export ALLOWED=false
+
+forge script script/DelegatedAccount.s.sol:SetOperatorAllowlistScript \
+  --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+```
+
+To see the state of every selector this repo knows about, together with the Exchange version the account talks to (read-only, no broadcast):
+
+```shell
+export DELEGATED_ACCOUNT=0x...
+
+forge script script/DelegatedAccount.s.sol:InspectDelegatedAccountScript --rpc-url <RPC_URL>
+```
+
+### Notes for operators on Exchange v1.1.7.6
+
+These apply to any sender and are not enforced by DelegatedAccount; they are listed here because an operator's bot is the usual sender.
+- `maxMatches` is held to 125 (0 means 125, down from 1,000). An order that is stopped by the limit keeps its fills; read `ImmediateOrCancelExecuted`, `OrderPlaced` or `CrossesBook` for what became of the rest.
+- An account can rest at most 150 orders in one perpetual. Above that, a forced close cancels none of them (`LiquidationAdlOrderCancelSkipped`).
+- Every order now starts with `OrderRequestV3`, whose `sender` is the DelegatedAccount address, not the operator's key.
+- `DecreaseCollateralRequestPending` is raised when a second request is filed before the first expires (120 seconds).
 
 ## Generating Interfaces
 
