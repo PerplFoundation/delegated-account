@@ -9,6 +9,7 @@ import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/Upgradeabl
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IExchange} from "../interfaces/IExchange.sol";
 import {IExchangeErrors} from "../interfaces/IExchangeErrors.sol";
+import {IExchangeEvents} from "../interfaces/IExchangeEvents.sol";
 import {DelegatedAccountFactory} from "../src/DelegatedAccountFactory.sol";
 import {
     SignOperatorScript,
@@ -21,9 +22,16 @@ import {
 abstract contract Base_Fork_Test is Test {
     // ============ Monad Testnet Constants ============
     string constant MONAD_RPC_URL = "https://testnet-rpc.monad.xyz";
-    uint256 constant FORK_BLOCK_NUMBER = 47_660_000; // Pinned block for deterministic tests
+    /// @dev Pinned block for deterministic tests. The public RPC serves historical state for
+    ///      roughly the most recent 8M blocks only, so this pin has to move forward from time to
+    ///      time; override it without editing with `FORK_BLOCK_NUMBER=<n> forge test ...`.
+    ///      The Exchange at this pin is v1.1.7.5 (`getContractVersion` reads (1,7,5)). Tests that
+    ///      need v1.1.7.6 behaviour are guarded by `whenExchangeAtLeast_1_7_6` and skip until the
+    ///      pin is moved past the testnet upgrade.
+    uint256 constant DEFAULT_FORK_BLOCK_NUMBER = 83_000_000;
     address constant MONAD_EXCHANGE = 0x1964C32f0bE608E7D29302AFF5E61268E72080cc;
-    address constant MONAD_EXCHANGE_OWNER = 0x9BE11AD8116d636f03aD7ab213ff6827B7Cc56EF;
+    /// @dev `Exchange.owner()` at the pinned block; it can change between pins.
+    address constant MONAD_EXCHANGE_OWNER = 0x582ea4aBe762A303A934E5983a2CdDeC336193B1;
     address constant MONAD_COLLATERAL_TOKEN = 0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC; // AUSD, 6 decimals
 
     // ============ Contracts ============
@@ -46,6 +54,9 @@ abstract contract Base_Fork_Test is Test {
     // ============ Selectors (for error checking) ============
     bytes4 constant WITHDRAW_COLLATERAL = 0x6112fe2e;
     bytes4 constant XFER_ACCT_TO_PROTOCOL = 0x61bd6f44;
+    bytes4 constant EXEC_ORDER_V2 = 0x28d18da3;
+    bytes4 constant EXEC_ORDERS_V2 = 0x81e54cba;
+    bytes4 constant DECREASE_POSITION_COLLATERAL_V5 = 0x5495086a; // five-argument form, Exchange <= 1.7.5
 
     /// @notice BTC-PERP, priceDecimals = 1, lotDecimals = 5
     uint256 constant BTC_PERP_ID = 0x10;
@@ -53,7 +64,8 @@ abstract contract Base_Fork_Test is Test {
     // ============ Setup ============
     function setUp() public virtual {
         // Create fork at pinned block number for deterministic tests
-        vm.createSelectFork(MONAD_RPC_URL, FORK_BLOCK_NUMBER);
+        vm.createSelectFork(MONAD_RPC_URL, vm.envOr("FORK_BLOCK_NUMBER", DEFAULT_FORK_BLOCK_NUMBER));
+        assertEq(IExchange(MONAD_EXCHANGE).owner(), MONAD_EXCHANGE_OWNER, "MONAD_EXCHANGE_OWNER is out of date");
 
         signOperatorScript = new SignOperatorScript();
 
@@ -82,6 +94,18 @@ abstract contract Base_Fork_Test is Test {
     }
 
     // ============ Helpers ============
+
+    /// @notice True when the forked Exchange is at least v1.1.7.6
+    function _exchangeAtLeast_1_7_6() internal view returns (bool) {
+        (uint256 major, uint256 minor, uint256 patch) = IExchange(MONAD_EXCHANGE).getContractVersion();
+        return major > 1 || (major == 1 && (minor > 7 || (minor == 7 && patch >= 6)));
+    }
+
+    /// @notice Skips the test while the pinned block predates the v1.1.7.6 upgrade
+    modifier whenExchangeAtLeast_1_7_6() {
+        vm.skip(!_exchangeAtLeast_1_7_6());
+        _;
+    }
 
     /// @notice Set a collateral token balance directly in storage
     /// @dev `deal()` cannot be used: AUSD packs its account data into a single slot as
@@ -174,6 +198,9 @@ contract Fork_Initialize_Test is Base_Fork_Test {
         assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
+        assertTrue(delegatedAccount.operatorAllowlist(0xebcf1656)); // cancelDecreaseCollateralRequest
+        assertTrue(delegatedAccount.operatorAllowlist(EXEC_ORDER_V2));
+        assertTrue(delegatedAccount.operatorAllowlist(EXEC_ORDERS_V2));
     }
 }
 
@@ -458,12 +485,19 @@ contract Fork_IsOperatorAllowed_Test is Base_Fork_Test {
         assertTrue(delegatedAccount.operatorAllowlist(0x4d8dc985)); // execOrder
         assertTrue(delegatedAccount.operatorAllowlist(0x39435dac)); // execOrders
         assertTrue(delegatedAccount.operatorAllowlist(0xbad4a01f)); // depositCollateral
+        assertTrue(delegatedAccount.operatorAllowlist(0x171a5b81)); // requestDecreasePositionCollateral
+        assertTrue(delegatedAccount.operatorAllowlist(0xebcf1656)); // cancelDecreaseCollateralRequest
+        assertTrue(delegatedAccount.operatorAllowlist(EXEC_ORDER_V2));
+        assertTrue(delegatedAccount.operatorAllowlist(EXEC_ORDERS_V2));
     }
 
     function test_WhenSelectorIsNotAllowlisted() external view {
         assertFalse(delegatedAccount.operatorAllowlist(WITHDRAW_COLLATERAL));
         assertFalse(delegatedAccount.operatorAllowlist(XFER_ACCT_TO_PROTOCOL));
         assertFalse(delegatedAccount.operatorAllowlist(0x12345678));
+        // Position Administrator's settlement call, in either form
+        assertFalse(delegatedAccount.operatorAllowlist(DECREASE_POSITION_COLLATERAL_V5));
+        assertFalse(delegatedAccount.operatorAllowlist(IExchange.decreasePositionCollateral.selector));
     }
 }
 
@@ -584,6 +618,112 @@ contract Fork_ExchangeOperations_Test is Base_Fork_Test {
         // Verify order was created
         assertGt(sig.orderId, 0);
         assertEq(sig.perpId, BTC_PERP_ID);
+    }
+}
+
+// ============================================================================
+// Fork: Decrease-Collateral Requests (via fallback)
+// ============================================================================
+
+/// @notice The operator's reach over the owner's decrease-collateral request. The direct entry
+///         points are allowlisted; from Exchange v1.1.7.6 the same request and its cancel also
+///         travel as order types 7 and 8 inside execOrder, which the selector allowlist cannot
+///         tell apart from a trade.
+contract Fork_DecreaseCollateral_Test is Base_Fork_Test {
+    IExchange public delegatedAccountAsExchange;
+
+    function setUp() public override {
+        super.setUp();
+        delegatedAccountAsExchange = IExchange(address(delegatedAccount));
+        _createAccount(DEPOSIT_AMOUNT);
+    }
+
+    function test_RequestDecreasePositionCollateral_Operator_ReachesExchange() external {
+        // No position is open, so the Exchange turns the request away itself: the revert comes from
+        // the Exchange, not from the allowlist
+        uint256 accountId = delegatedAccount.accountId();
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(IExchangeErrors.PositionDoesNotExist.selector, BTC_PERP_ID, accountId));
+        delegatedAccountAsExchange.requestDecreasePositionCollateral(BTC_PERP_ID, 1, false);
+    }
+
+    function test_CancelDecreaseCollateralRequest_Operator() external {
+        vm.expectEmit(true, true, true, true, MONAD_EXCHANGE);
+        emit IExchangeEvents.CollateralDecreaseRequestCancelled(BTC_PERP_ID, delegatedAccount.accountId());
+
+        vm.prank(operator);
+        delegatedAccountAsExchange.cancelDecreaseCollateralRequest(BTC_PERP_ID);
+    }
+
+    function test_CancelDecreaseCollateralRequest_RevertWhen_OwnerRevokedIt() external {
+        vm.prank(owner);
+        delegatedAccount.setOperatorAllowlist(IExchange.cancelDecreaseCollateralRequest.selector, false);
+
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DelegatedAccount.SelectorNotAllowed.selector, IExchange.cancelDecreaseCollateralRequest.selector
+            )
+        );
+        delegatedAccountAsExchange.cancelDecreaseCollateralRequest(BTC_PERP_ID);
+    }
+
+    /// @dev Exchange >= 1.7.6 only: order type 7 inside execOrder is a decrease-collateral request.
+    ///      It passes the allowlist as execOrder and is judged by the Exchange, which here rejects
+    ///      it on its own grounds (no position, or the perp's open-interest gate). Revoking
+    ///      requestDecreasePositionCollateral does not close this path: only revoking execOrder does.
+    function test_ExecOrder_RequestDecreaseCollateralOrderType_Operator() external whenExchangeAtLeast_1_7_6 {
+        IExchange.OrderDesc memory orderDesc = _decreaseCollateralOrder(OrderDescEnum.RequestDecreasePositionCollateral);
+
+        vm.prank(owner);
+        delegatedAccount.setOperatorAllowlist(IExchange.requestDecreasePositionCollateral.selector, false);
+
+        vm.prank(operator);
+        (bool ok, bytes memory ret) =
+            address(delegatedAccount).call(abi.encodeWithSelector(IExchange.execOrder.selector, orderDesc));
+        assertFalse(ok, "expected the Exchange to reject the request on its own grounds");
+        assertNotEq(bytes4(ret), DelegatedAccount.SelectorNotAllowed.selector, "allowlist must not have blocked it");
+
+        vm.prank(owner);
+        delegatedAccount.setOperatorAllowlist(IExchange.execOrder.selector, false);
+
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(DelegatedAccount.SelectorNotAllowed.selector, IExchange.execOrder.selector)
+        );
+        delegatedAccountAsExchange.execOrder(orderDesc);
+    }
+
+    /// @dev Exchange >= 1.7.6 only: order type 8 inside execOrder cancels the request.
+    function test_ExecOrder_CancelDecreaseCollateralOrderType_Operator() external whenExchangeAtLeast_1_7_6 {
+        IExchange.OrderDesc memory orderDesc = _decreaseCollateralOrder(OrderDescEnum.CancelDecreaseCollateralRequest);
+
+        vm.expectEmit(true, true, true, true, MONAD_EXCHANGE);
+        emit IExchangeEvents.CollateralDecreaseRequestCancelled(BTC_PERP_ID, delegatedAccount.accountId());
+
+        vm.prank(operator);
+        delegatedAccountAsExchange.execOrder(orderDesc);
+    }
+
+    function _decreaseCollateralOrder(OrderDescEnum orderType) internal view returns (IExchange.OrderDesc memory) {
+        return IExchange.OrderDesc({
+            orderDescId: 0,
+            perpId: BTC_PERP_ID,
+            orderType: IExchange.OrderDescEnum.wrap(uint8(orderType)),
+            orderId: 0,
+            pricePNS: 0,
+            lotLNS: 0,
+            expiryBlock: block.number + 1000,
+            postOnly: false, // carries clampToMaximum for order type 7
+            fillOrKill: false,
+            immediateOrCancel: false,
+            maxMatches: 0,
+            leverageHdths: 0,
+            lastExecutionBlock: 0,
+            amountCNS: 1, // the amount for order type 7; 0 means "the most that can be withdrawn"
+            maxNegPnlCollatBPS: 0
+        });
     }
 }
 
@@ -754,5 +894,7 @@ enum OrderDescEnum {
     CloseShort,
     Cancel,
     IncreasePositionCollateral,
-    Change
+    Change,
+    RequestDecreasePositionCollateral, // Exchange >= 1.7.6
+    CancelDecreaseCollateralRequest // Exchange >= 1.7.6
 }

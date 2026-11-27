@@ -240,3 +240,93 @@ contract SyncOperatorAllowlistScript is OperatorAllowlistScript {
         console.log("Operator allowlist synced for:", address(delegatedAccount));
     }
 }
+
+/// @notice Grants or revokes a single Exchange selector on a DelegatedAccount's operator allowlist
+/// @dev Must be run by the DelegatedAccount owner. Use it to withdraw a default entry point
+///      (e.g. execOrderV2 0x28d18da3 and execOrdersV2 0x81e54cba, whose extension envelope lets
+///      the operator name a builder code and builder fee; or requestDecreasePositionCollateral
+///      0x171a5b81), or to grant one that is off the default list.
+///
+///      export DELEGATED_ACCOUNT=0x...
+///      export SELECTOR=0x28d18da3
+///      export ALLOWED=false
+///      forge script script/DelegatedAccount.s.sol:SetOperatorAllowlistScript --rpc-url <RPC_URL> --broadcast --private-key <OWNER_KEY>
+///      Or with Ledger: forge script script/DelegatedAccount.s.sol:SetOperatorAllowlistScript --rpc-url <RPC_URL> --broadcast --ledger
+contract SetOperatorAllowlistScript is Script {
+    function run() public {
+        DelegatedAccount delegatedAccount = DelegatedAccount(payable(vm.envAddress("DELEGATED_ACCOUNT")));
+        bytes memory raw = vm.envBytes("SELECTOR");
+        if (raw.length != 4) revert("SELECTOR must be 4 bytes, e.g. 0x28d18da3");
+        bytes4 selector = bytes4(raw);
+        bool allowed = vm.envBool("ALLOWED");
+
+        vm.startBroadcast();
+        set(delegatedAccount, selector, allowed);
+        vm.stopBroadcast();
+    }
+
+    /// @notice Sets one allowlist entry, skipping the transaction when it is already in that state.
+    function set(DelegatedAccount delegatedAccount, bytes4 selector, bool allowed) public {
+        if (delegatedAccount.operatorAllowlist(selector) == allowed) {
+            console.log("Already in desired state, nothing to do:");
+            console.logBytes4(selector);
+            return;
+        }
+        delegatedAccount.setOperatorAllowlist(selector, allowed);
+        console.log(allowed ? "Allowlisted selector:" : "Revoked selector:");
+        console.logBytes4(selector);
+    }
+}
+
+/// @notice Read-only report of a DelegatedAccount: Exchange version, roles, and the state of every
+///         selector this repo knows about on the operator allowlist. Sends no transactions.
+/// @dev Use it before and after an Exchange upgrade to see whether SyncOperatorAllowlistScript has
+///      anything to do, and which default selectors an owner has revoked.
+///
+///      export DELEGATED_ACCOUNT=0x...
+///      forge script script/DelegatedAccount.s.sol:InspectDelegatedAccountScript --rpc-url <RPC_URL>
+contract InspectDelegatedAccountScript is OperatorAllowlistScript {
+    function run() public view {
+        DelegatedAccount delegatedAccount = DelegatedAccount(payable(vm.envAddress("DELEGATED_ACCOUNT")));
+        IExchange exchange = IExchange(delegatedAccount.exchange());
+
+        console.log("DelegatedAccount:", address(delegatedAccount));
+        console.log("Owner:           ", delegatedAccount.owner());
+        console.log("Pending owner:   ", delegatedAccount.pendingOwner());
+        console.log("Exchange:        ", address(exchange));
+        try exchange.getContractVersion() returns (uint256 major, uint256 minor, uint256 patch) {
+            console.log("Exchange version: %s.%s.%s", major, minor, patch);
+        } catch {
+            console.log("Exchange version: (getContractVersion unavailable)");
+        }
+        console.log("Exchange account id:", delegatedAccount.accountId());
+        if (delegatedAccount.accountId() != 0) {
+            try exchange.getAccountNumOrders(delegatedAccount.accountId()) returns (uint256 numOrders) {
+                console.log("Resting orders (all perps):", numOrders);
+            } catch {
+                console.log("Resting orders: (getAccountNumOrders needs Exchange >= 1.7.6)");
+            }
+        }
+
+        console.log("");
+        console.log("Default allowlist (expected: allowed)");
+        _report(delegatedAccount, currentAllowlist());
+        console.log("");
+        console.log("Stale selectors (expected: not allowed; SyncOperatorAllowlistScript revokes them)");
+        _report(delegatedAccount, staleAllowlist());
+        console.log("");
+        console.log("Excluded selectors (expected: not allowed; never granted by default)");
+        _report(delegatedAccount, excludedAllowlist());
+    }
+
+    function _report(DelegatedAccount delegatedAccount, bytes4[] memory selectors) internal view {
+        for (uint256 i = 0; i < selectors.length; i++) {
+            console.log(
+                "  %s %s  %s",
+                delegatedAccount.operatorAllowlist(selectors[i]) ? "[allowed]" : "[blocked]",
+                vm.toString(abi.encodePacked(selectors[i])),
+                selectorName(selectors[i])
+            );
+        }
+    }
+}

@@ -44,7 +44,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run fork tests
-        run: forge test -vvv --match-contract Fork
+        run: forge test -vvv --fork-url https://testnet-rpc.monad.xyz --match-contract Fork
 
   build:
     name: Build

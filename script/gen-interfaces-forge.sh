@@ -11,7 +11,7 @@ command -v jq    >/dev/null 2>&1 || { echo "Missing: jq"; exit 1; }
 # PERPL_PROJECT_PATH must be set to the target project directory
 if [[ -z "${PERPL_PROJECT_PATH:-}" ]]; then
   echo "Error: PERPL_PROJECT_PATH environment variable is not set."
-  echo "Usage: PERPL_PROJECT_PATH=../mvp-sc-0.1 $0"
+  echo "Usage: PERPL_PROJECT_PATH=../<exchange-contracts> $0"
   exit 1
 fi
 
@@ -28,7 +28,13 @@ PRAGMA="^0.8.20"
 EXCL_PATH_1="*/helpers/*"
 EXCL_PATH_2="*/fuzzer/*"
 
-# Combined interface names for events and errors
+# Only these contracts get a per-contract function interface. The Exchange ABI already carries
+# every function of its facets (Admin, Owner, PositionAdmin, ...), and a DelegatedAccount talks
+# to nothing else, so one file is the whole surface an external user can call.
+INTERFACE_CONTRACTS="Exchange"
+
+# Combined interface names for events and errors (collected from every compiled contract, so that
+# reverts and logs raised through libraries and dependencies decode too)
 COMBINED_EVENTS_NAME="IExchangeEvents"
 COMBINED_ERRORS_NAME="IExchangeErrors"
 # ----------------------------------------
@@ -71,12 +77,15 @@ while IFS= read -r -d '' artifact; do
 
   fnCount="$(jq '[.[] | select(.type=="function")] | length' "$abiFile")"
   [[ "$fnCount" -eq 0 ]] && continue
-  found_any=1
 
-  # Generate per-contract interface with FUNCTIONS ONLY (no events/errors)
-  functionsOnlyAbi="$TMP_DIR/${contract}.functions.abi.json"
-  jq '[.[] | select(.type=="function")]' "$abiFile" > "$functionsOnlyAbi"
-  cast interface -n "I${contract}" -p "$PRAGMA" -o "$TMP_OUT/I${contract}.sol" "$functionsOnlyAbi"
+  # Generate per-contract interface with FUNCTIONS ONLY (no events/errors), for listed contracts
+  for wanted in $INTERFACE_CONTRACTS; do
+    [[ "$contract" == "$wanted" ]] || continue
+    found_any=1
+    functionsOnlyAbi="$TMP_DIR/${contract}.functions.abi.json"
+    jq '[.[] | select(.type=="function")]' "$abiFile" > "$functionsOnlyAbi"
+    cast interface -n "I${contract}" -p "$PRAGMA" -o "$TMP_OUT/I${contract}.sol" "$functionsOnlyAbi"
+  done
 
   # Collect events for combined interface (dedupe by signature)
   evCount="$(jq '[.[] | select(.type=="event")] | length' "$abiFile")"
@@ -103,9 +112,9 @@ done < <(
   find "$BUILD_OUT_DIR" -type f -name '*.json' ! -name '*.metadata.json' -print0 2>/dev/null || true
 )
 
-# 4) If nothing had functions, do not create any files
+# 4) If no listed contract was found, do not create any files
 if [[ "$found_any" -eq 0 ]]; then
-  echo "ℹ️ No functions found (after exclusions). No files created."
+  echo "ℹ️ None of [$INTERFACE_CONTRACTS] found with functions (after exclusions). No files created."
   rm -rf "$TMP_DIR"
   exit 0
 fi
@@ -124,12 +133,15 @@ if [[ "$found_errors" -eq 1 ]]; then
   cast interface -n "$COMBINED_ERRORS_NAME" -p "$PRAGMA" -o "$TMP_OUT/${COMBINED_ERRORS_NAME}.sol" "$MERGED_ERRORS_ABI"
 fi
 
-# 7) Write outputs
+# 7) Write outputs. Stale interface files (contracts that no longer exist, or are no longer
+#    listed) are removed first so they do not linger.
 mkdir -p "$OUT_DIR"
+find "$OUT_DIR" -maxdepth 1 -type f -name 'I*.sol' -delete
 cp -a "$TMP_OUT/." "$OUT_DIR/"
 
-echo "✅ Per-contract interfaces (functions only): $OUT_DIR/I<Contract>.sol"
-echo "   IExchange.sol contains all functions from inherited contracts"
+for wanted in $INTERFACE_CONTRACTS; do
+  echo "✅ Function interface: $OUT_DIR/I${wanted}.sol (includes every inherited function)"
+done
 if [[ "$found_events" -eq 1 ]]; then
   echo "✅ Combined events interface: $OUT_DIR/${COMBINED_EVENTS_NAME}.sol"
 fi
