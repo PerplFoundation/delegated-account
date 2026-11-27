@@ -44,7 +44,7 @@ forge script script/UpgradeDelegatedAccount.s.sol:UpgradeBeaconScript \
 
 ## Exchange v1.1.7.6
 
-The Exchange upgrade to v1.1.7.6 (mvp-sc-0.1 branch `feat/v1.1.7.6-dcp-ommf`) changes the selector of no function on the default operator allowlist. The only changed signature is `decreasePositionCollateral` (now six arguments, `0x5495086a` -> `0xa292c664`), which no DelegatedAccount implementation has ever granted. The deployed implementation therefore keeps working against the upgraded Exchange as it is, and **no beacon upgrade is required to survive the Exchange upgrade**.
+The Exchange upgrade to v1.1.7.6 changes the selector of no function on the default operator allowlist. The only changed signature is `decreasePositionCollateral` (now six arguments, `0x5495086a` -> `0xa292c664`), which no DelegatedAccount implementation has ever granted. The deployed implementation therefore keeps working against the upgraded Exchange as it is, and **no beacon upgrade is required to survive the Exchange upgrade**.
 
 This repo's own change for the release is a policy one. Three selectors join the default allowlist: `cancelDecreaseCollateralRequest` (`0xebcf1656`), because from v1.1.7.6 an operator with `execOrder` can cancel the request anyway through order type 8 (see the README's "Default Operator Allowlist"); and `execOrderV2` (`0x28d18da3`) and `execOrdersV2` (`0x81e54cba`), so that operators can name client order ids. The V2 envelope also carries a builder code and fee, which an owner can refuse by revoking both. That is the only difference between the deployed implementation and this one.
 
@@ -60,9 +60,9 @@ This repo's own change for the release is a policy one. Three selectors join the
 
 ### Before the Exchange upgrade
 
-1. Tell the owners of delegated accounts what their operator can do from the upgrade block: file, rewrite or cancel the account's decrease-collateral request through `execOrder` (warning 1 of the Exchange upgrade guide). Point them at the two rows above.
+1. Tell the owners of delegated accounts what their operator can do from the upgrade block: file, rewrite or cancel the account's decrease-collateral request through any order entry point, as order types 7 and 8. The collateral a request releases stays in the account's Exchange balance, which only the owner can withdraw; what the operator gains is the ability to lower the collateral of the owner's position, which moves its liquidation price, and to cancel a request the owner made. Point them at the two rows above.
 2. Tell each operator about the sender-side changes listed in the README ("Notes for operators on Exchange v1.1.7.6"): `maxMatches` capped at 125, the 150-order limit per perpetual, `OrderRequestV3`.
-3. Tell owners that `execOrderV2` / `execOrdersV2` are granted by default so operators can name client order ids, and that the same envelope lets the operator name a builder code and fee (warning 2 of the Exchange upgrade guide). The row above revokes both.
+3. Tell owners that `execOrderV2` / `execOrdersV2` are granted by default so operators can name client order ids, and that the same extension envelope lets the operator name a builder code and a builder fee on the account's orders. The row above revokes both.
 
 ### After the Exchange upgrade
 

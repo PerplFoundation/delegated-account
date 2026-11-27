@@ -192,7 +192,7 @@ The operator can call these Exchange functions by default:
 - `depositCollateral` - deposits (via fallback)
 - `allowOrderForwarding` - order forwarding permission (TODO: should we keep this one?)
 
-The allowlist is checked on the 4-byte selector only. Calldata is never decoded, so an allowlisted entry point carries every order type and parameter the Exchange accepts for it. From Exchange v1.1.7.6, `execOrder` and `execOrders` accept order types 7 (`RequestDecreasePositionCollateral`) and 8 (`CancelDecreaseCollateralRequest`), so an operator with `execOrder` can file, rewrite or cancel the account's decrease-collateral request whether or not the direct selectors are granted. That is why `cancelDecreaseCollateralRequest` is on the default list next to `requestDecreasePositionCollateral`: granting one path and not the other protects nothing. The collateral a request releases goes to the account's own Exchange balance, which only the owner can withdraw. What the operator gains is the ability to lower the collateral of the owner's position, which moves its liquidation price. An owner who does not want that revokes `execOrder`, `execOrders` and `requestDecreasePositionCollateral` together.
+The allowlist is checked on the 4-byte selector only. Calldata is never decoded, so an allowlisted entry point carries every order type and parameter the Exchange accepts for it. From Exchange v1.1.7.6, every order entry point (`execOrder`, `execOrders`, `execOrderV2`, `execOrdersV2`) accepts order types 7 (`RequestDecreasePositionCollateral`) and 8 (`CancelDecreaseCollateralRequest`), so an operator with any of them can file, rewrite or cancel the account's decrease-collateral request whether or not the direct selectors are granted. That is why `cancelDecreaseCollateralRequest` is on the default list next to `requestDecreasePositionCollateral`: granting one path and not the other protects nothing. The collateral a request releases goes to the account's own Exchange balance, which only the owner can withdraw. What the operator gains is the ability to lower the collateral of the owner's position, which moves its liquidation price. There is no way to keep an operator trading and away from the request at the same time: an owner who does not want it revokes `execOrder`, `execOrders`, `execOrderV2`, `execOrdersV2` and `requestDecreasePositionCollateral` together, which also removes the operator's ability to trade.
 
 ### Security
 
@@ -235,7 +235,7 @@ To generate Solidity interfaces from contracts in another project, set the `PERP
 
 ```shell
 # Set the path to your project (adjust as needed)
-export PERPL_PROJECT_PATH=../mvp-sc-0.1
+export PERPL_PROJECT_PATH=../<exchange-contracts>
 
 # Generate interfaces (compiles automatically using the perpl profile)
 ./script/gen-interfaces-forge.sh
@@ -244,7 +244,7 @@ export PERPL_PROJECT_PATH=../mvp-sc-0.1
 Or as a one-liner:
 
 ```shell
-PERPL_PROJECT_PATH=../mvp-sc-0.1 ./script/gen-interfaces-forge.sh
+PERPL_PROJECT_PATH=../<exchange-contracts> ./script/gen-interfaces-forge.sh
 ```
 
 The generated interfaces will be placed in `./interfaces/`.

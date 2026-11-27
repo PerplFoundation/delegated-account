@@ -11,7 +11,7 @@ command -v jq    >/dev/null 2>&1 || { echo "Missing: jq"; exit 1; }
 # PERPL_PROJECT_PATH must be set to the target project directory
 if [[ -z "${PERPL_PROJECT_PATH:-}" ]]; then
   echo "Error: PERPL_PROJECT_PATH environment variable is not set."
-  echo "Usage: PERPL_PROJECT_PATH=../mvp-sc-0.1 $0"
+  echo "Usage: PERPL_PROJECT_PATH=../<exchange-contracts> $0"
   exit 1
 fi
 
